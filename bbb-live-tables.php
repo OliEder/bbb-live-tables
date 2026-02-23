@@ -3,7 +3,7 @@
  * Plugin Name:       BBB Live Tables
  * Plugin URI:        https://github.com/OliEder/bbb-live-tables
  * Description:       Liga-Tabellen und Turnier-Brackets live aus der Basketball-Bund.net (BBB) API. Standalone – kein SportsPress nötig. Optional erweiterbar durch bbb-sportspress-sync.
- * Version:           1.5.0
+ * Version:           1.5.1
  * Author:            Oliver-Marcus Eder
  * Author URI:        https://github.com/OliEder
  * License:           GPL-2.0+
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BBB_TABLES_VERSION', '1.5.0' );
+define( 'BBB_TABLES_VERSION', '1.5.1' );
 define( 'BBB_TABLES_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BBB_TABLES_URL', plugin_dir_url( __FILE__ ) );
 define( 'BBB_TABLES_BASENAME', plugin_basename( __FILE__ ) );
@@ -51,10 +51,18 @@ add_action( 'plugins_loaded', function() {
         new BBB_Goodlayers_Elements();
     }
 
-    // Admin Settings
+    // Admin Settings + GitHub Update Checker
     if ( is_admin() ) {
         require_once BBB_TABLES_DIR . 'includes/class-bbb-tables-admin.php';
         new BBB_Tables_Admin();
+
+        require_once BBB_TABLES_DIR . 'includes/class-bbb-github-updater.php';
+        new BBB_GitHub_Updater(
+            BBB_TABLES_BASENAME,
+            'OliEder',
+            'bbb-live-tables',
+            BBB_TABLES_VERSION
+        );
     }
 }, 20 ); // Priorität 20: Nach bbb-sportspress-sync (falls aktiv)
 
