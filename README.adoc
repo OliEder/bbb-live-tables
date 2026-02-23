@@ -12,7 +12,7 @@ Liga-Tabellen und Turnier-Brackets aus der {url-bbb}[basketball-bund.net] REST A
 image::https://img.shields.io/badge/WordPress-6.0+-blue?logo=wordpress[WordPress]
 image::https://img.shields.io/badge/PHP-8.1+-purple?logo=php[PHP]
 image::https://img.shields.io/badge/Lizenz-GPL--2.0+-green[License]
-image::https://img.shields.io/badge/Version-1.4-orange[Version]
+image::https://img.shields.io/github/v/release/OliEder/bbb-live-tables?label=Version&color=orange[Version]
 
 toc::[]
 
@@ -22,6 +22,8 @@ toc::[]
 * **Turnier-Brackets** – KO-Wettbewerbe (Single Elimination) und Playoff-Serien (Best-of-N)
 * **Responsive** – Getrennte Spalten-Konfiguration für Desktop und Mobil
 * **Drei Ausgabe-Kanäle** – Shortcode, Gutenberg Block, Goodlayers Page Builder Element
+* **Auto-Discovery** – Teams und Ligen automatisch über Club-ID erkennen (mit Teamname, Altersklasse, Geschlecht)
+* **Auto-Update** – Update-Benachrichtigungen direkt im WordPress-Dashboard (via GitHub Releases)
 * **DSGVO-konform** – Keine persistente Speicherung fremder Vereinsdaten, nur Transient-Caching
 * **Standalone** – Keine Abhängigkeiten zu SportsPress oder anderen Plugins
 * **Optional erweiterbar** – Lose Kopplung mit https://github.com/OliEder/bbb-sportspress-sync[bbb-sportspress-sync] via Filter Hooks
@@ -49,6 +51,10 @@ git clone https://github.com/OliEder/bbb-live-tables.git
 
 Plugin anschließend im WordPress-Admin aktivieren.
 
+=== Updates
+
+Nach der Installation prüft das Plugin automatisch auf neue Versionen via GitHub Releases. Updates erscheinen wie gewohnt unter **Dashboard → Aktualisierungen** und können mit einem Klick installiert werden.
+
 === Voraussetzungen
 
 * WordPress ≥ 6.0
@@ -59,10 +65,11 @@ Plugin anschließend im WordPress-Admin aktivieren.
 
 Nach der Aktivierung: **Einstellungen → BBB Live Tables**
 
-. **Club-ID eintragen** – Die ID deines Vereins auf basketball-bund.net (z.B. `1234`). +
+. **Tab „Verein":** Club-ID eintragen (z.B. `4468`) +
   _(Findest du in der URL deiner Vereinsseite: `basketball-bund.net/club/id/XXXX`)_
 . **Speichern** – Das Plugin erkennt automatisch deine Teams und Ligen.
-. **Shortcode einbetten:**
+. **Tab „Ligen & Turniere":** Fertigen Shortcode kopieren
+. **In eine Seite einfügen:**
 
 [source]
 ----
@@ -70,6 +77,41 @@ Nach der Aktivierung: **Einstellungen → BBB Live Tables**
 ----
 
 Fertig! Die Tabelle wird live aus der BBB-API geladen.
+
+
+== Admin-Oberfläche
+
+Die Verwaltung erfolgt unter **Einstellungen → BBB Live Tables** mit fünf Tabs.
+
+=== Verein
+
+Club-ID und optionale Team-PID-Overrides. Nach Eingabe der Club-ID erscheint die Auto-Discovery mit allen erkannten Teams, inklusive Teamname, Altersklasse (z.B. U12 ♂), zugeordneten Ligen und Logo. Ein „Cache leeren & neu erkennen"-Button aktualisiert die Discovery-Daten.
+
+=== Ligen & Turniere
+
+Alle automatisch erkannten Ligen und Turniere des Vereins mit:
+
+* Liga-ID und Name
+* Typ-Erkennung (Tabelle vs. Turnier)
+* Fertigen Shortcodes zum Kopieren (Standard + Goodlayers-Format)
+
+=== Darstellung
+
+Farbeinstellungen mit ausführlichen Beschreibungen, wofür jede Farbe konkret verwendet wird:
+
+* **Primärfarbe** – Hintergrund der Tabellen-Kopfzeile
+* **Akzentfarbe** – Hervorhebung eigener Teams, Links, Gewinner-Markierung
+* **Header-Textfarbe** – Textfarbe in der Kopfzeile
+
+Info-Box zur Farb-Ermittlungs-Reihenfolge: SportsPress → Plugin-Einstellungen → Goodlayers-Theme → Standard-Werte. Leer lassen = automatische Übernahme aus der nächsten Quelle.
+
+=== Referenz
+
+Shortcode-Dokumentation und Filter-Hooks für Entwickler mit Verlinkung zum Ligen-Tab.
+
+=== ❤️ Support
+
+Donation-Links (Buy Me a Coffee, Ko-fi), GitHub Issues für Bugmeldungen und Feature-Wünsche, Verweis auf das Schwester-Plugin BBB SportsPress Sync.
 
 
 == Verwendung
@@ -165,37 +207,7 @@ Die Liga-ID findest du auf {url-bbb}[basketball-bund.net]:
 . Navigiere zu deiner Liga (z.B. über Spielbetrieb → Ligen)
 . Die ID steht in der URL: `basketball-bund.net/league/id/*47976*`
 
-Alternativ: Nach Aktivierung des Plugins und Eingabe deiner Club-ID werden alle Ligen deines Vereins mit ihren IDs auf der Einstellungsseite angezeigt (Auto-Discovery).
-
-
-== Einstellungen
-
-Unter **Einstellungen → BBB Live Tables**:
-
-[cols="1,3",options="header"]
-|===
-| Option | Beschreibung
-
-| Club-ID
-| Deine Vereins-ID für automatische Team-Erkennung und Hervorhebung
-
-| Eigene Team-PIDs
-| Manueller Override: Komma-getrennte Team Permanent-IDs
-
-| Primärfarbe
-| Farbe für Tabellenkopf und Hervorhebung
-
-| Linkfarbe
-| Farbe für Links in Tabelle/Bracket
-
-| Überschriftenfarbe
-| Farbe für Titel
-|===
-
-Zusätzlich:
-
-* **Cache leeren** – Löscht alle Tabellen-, Bracket- und Discovery-Caches
-* **Auto-Discovery** – Zeigt erkannte Teams, Ligen und fertige Shortcodes
+Alternativ: Nach Eingabe deiner Club-ID werden alle Ligen deines Vereins mit ihren IDs im Tab **Ligen & Turniere** angezeigt (Auto-Discovery).
 
 
 == Erweiterung mit bbb-sportspress-sync
@@ -204,7 +216,7 @@ Wenn https://github.com/OliEder/bbb-sportspress-sync[bbb-sportspress-sync] aktiv
 
 * Team-Logos aus SportsPress statt BBB-API
 * Klickbare Team- und Ergebnis-Links zu SportsPress-Seiten
-* Theme-Farben aus SportsPress Frontend-CSS
+* Theme-Farben aus SportsPress Frontend CSS
 * Liga-Dropdown im Gutenberg-Editor basierend auf SP-Taxonomien
 
 Die Integration erfolgt automatisch über 6 WordPress Filter Hooks – keine Konfiguration nötig.
@@ -242,10 +254,34 @@ Nein. Die Tabellen- und Bracket-Daten werden live von der BBB-API geladen und nu
 Das Plugin wurde mit dem BigSlam-Theme (Goodlayers) getestet und enthält spezielle CSS-Kompatibilitäts-Fixes. Es sollte mit jedem WordPress-Theme funktionieren.
 
 *Wie oft werden die Daten aktualisiert?* +
-Bei jedem Seitenaufruf nach Ablauf des Caches. Die Cache-Dauer ist pro Shortcode konfigurierbar. Über die Admin-Seite kann der Cache auch manuell geleert werden.
+Bei jedem Seitenaufruf nach Ablauf des Caches. Die Cache-Dauer ist pro Shortcode konfigurierbar. Über den Tab „Verein" oder „Ligen & Turniere" kann der Cache auch manuell geleert werden.
 
 *Kann ich das Plugin für andere Sportarten nutzen?* +
 Nein. Das Plugin ist spezifisch für die basketball-bund.net API des Deutschen Basketball Bundes.
+
+*Wie funktionieren Updates?* +
+Das Plugin prüft automatisch alle 12 Stunden über die GitHub Releases API, ob eine neue Version verfügbar ist. Updates erscheinen im WordPress-Dashboard und können dort mit einem Klick installiert werden – genau wie bei Plugins aus dem offiziellen WordPress-Verzeichnis.
+
+
+== Projektstruktur
+
+[source]
+----
+bbb-live-tables/
+├── bbb-live-tables.php              # Plugin-Bootstrap
+├── includes/
+│   ├── class-bbb-api-client.php     # BBB REST API Client (inkl. Team-Discovery)
+│   ├── class-bbb-live-table.php     # Liga-Tabelle (Shortcode + Block)
+│   ├── class-bbb-tournament-bracket.php  # Bracket (Shortcode + Block + REST)
+│   ├── class-bbb-goodlayers-elements.php # Goodlayers Page Builder
+│   ├── class-bbb-tables-admin.php   # Admin-Einstellungen (5 Tabs)
+│   └── class-bbb-github-updater.php # GitHub Release Update Checker
+├── blocks/
+│   ├── table/                       # Gutenberg Block: Tabelle
+│   └── bracket/                     # Gutenberg Block: Bracket
+└── docs/
+    └── arc42-bbb-live-tables.adoc   # Architekturdokumentation
+----
 
 
 == Entwicklung
@@ -261,25 +297,6 @@ docker compose up -d
 
 WordPress läuft dann unter `http://localhost:8080` (Login: admin/admin). +
 Das Plugin wird automatisch per Volume-Mount eingebunden.
-
-=== Projektstruktur
-
-[source]
-----
-bbb-live-tables/
-├── bbb-live-tables.php              # Plugin-Bootstrap
-├── includes/
-│   ├── class-bbb-api-client.php     # BBB REST API Client
-│   ├── class-bbb-live-table.php     # Liga-Tabelle (Shortcode + Block)
-│   ├── class-bbb-tournament-bracket.php  # Bracket (Shortcode + Block + REST)
-│   ├── class-bbb-goodlayers-elements.php # Goodlayers Page Builder
-│   └── class-bbb-tables-admin.php   # Admin-Einstellungen
-├── blocks/
-│   ├── table/                       # Gutenberg Block: Tabelle
-│   └── bracket/                     # Gutenberg Block: Bracket
-└── docs/
-    └── arc42-bbb-live-tables.adoc   # Architekturdokumentation
-----
 
 
 == Lizenz
