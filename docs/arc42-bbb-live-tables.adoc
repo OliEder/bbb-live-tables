@@ -18,7 +18,7 @@
 
 BBB Live Tables ist ein WordPress-Plugin, das Liga-Tabellen und Turnier-Brackets des Deutschen Basketball Bundes (DBB) live auf einer Vereinswebsite darstellt. Die Daten werden über die öffentliche REST API von https://www.basketball-bund.net[basketball-bund.net] (BBB) bezogen.
 
-Das Plugin wurde für den Basketballverein **Fibalon Baskets Neumarkt** (BBB Club-ID: 4468) entwickelt, ist aber für jeden deutschen Basketballverein nutzbar.
+Das Plugin wurde für den Basketballverein **Fibalon Baskets Neumarkt** (BBB Club-ID: 1234) entwickelt, ist aber für jeden deutschen Basketballverein nutzbar.
 
 === Wesentliche Features
 
@@ -776,7 +776,7 @@ Qualität
 | Mannschafts-ID die über Saisons hinweg gleich bleibt (im Gegensatz zur saisonalen Team-ID)
 
 | Club-ID
-| Vereins-ID in der BBB-API (Fibalon Baskets Neumarkt = 4468)
+| Vereins-ID in der BBB-API (z.B. 1234)
 
 | SP / SportsPress
 | WordPress-Plugin für Sportvereinsverwaltung (Teams, Events, Spieler, Tabellen)

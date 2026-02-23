@@ -211,6 +211,58 @@ class BBB_Api_Client {
     }
 
     /**
+     * Detaillierte Team-Infos aus den aktuellen Club-Matches extrahieren.
+     *
+     * @param int $club_id    BBB Vereins-ID
+     * @param int $range_days Zeitraum in Tagen (default: 150)
+     * @return array          [ permanent_id => [ 'teamname', 'akName', 'geschlecht', 'ligen' ] ]
+     */
+    public function get_club_teams_detailed( int $club_id, int $range_days = 150 ): array {
+        $matches = $this->get_club_matches_raw( $club_id, $range_days );
+        $teams   = [];
+
+        foreach ( $matches as $match ) {
+            $liga_data = $match['ligaData'] ?? [];
+            $liga_name = $liga_data['liganame'] ?? '';
+
+            // akName + geschlecht sind in ligaData, nicht im Team-Objekt
+            $ak_name    = $liga_data['akName'] ?? '';
+            $geschlecht = $liga_data['geschlecht'] ?? '';
+
+            foreach ( [ 'homeTeam', 'guestTeam' ] as $side ) {
+                $team = $match[ $side ] ?? [];
+                if ( (int) ( $team['clubId'] ?? 0 ) !== $club_id ) continue;
+
+                $pid = (int) ( $team['teamPermanentId'] ?? 0 );
+                if ( ! $pid ) continue;
+
+                if ( ! isset( $teams[ $pid ] ) ) {
+                    $teams[ $pid ] = [
+                        'teamname'   => $team['teamname'] ?? "Team {$pid}",
+                        'akName'     => $ak_name,
+                        'geschlecht' => $geschlecht,
+                        'ligen'      => [],
+                    ];
+                }
+
+                // Nachträglich ergänzen falls erstes Match keine AK-Info hatte
+                if ( empty( $teams[ $pid ]['akName'] ) && $ak_name ) {
+                    $teams[ $pid ]['akName'] = $ak_name;
+                }
+                if ( empty( $teams[ $pid ]['geschlecht'] ) && $geschlecht ) {
+                    $teams[ $pid ]['geschlecht'] = $geschlecht;
+                }
+
+                if ( $liga_name && ! in_array( $liga_name, $teams[ $pid ]['ligen'], true ) ) {
+                    $teams[ $pid ]['ligen'][] = $liga_name;
+                }
+            }
+        }
+
+        return $teams;
+    }
+
+    /**
      * Alle Ligen des Vereins aus actualmatches extrahieren.
      *
      * @param int $club_id    BBB Vereins-ID

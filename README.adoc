@@ -59,7 +59,7 @@ Plugin anschließend im WordPress-Admin aktivieren.
 
 Nach der Aktivierung: **Einstellungen → BBB Live Tables**
 
-. **Club-ID eintragen** – Die ID deines Vereins auf basketball-bund.net (z.B. `4468`). +
+. **Club-ID eintragen** – Die ID deines Vereins auf basketball-bund.net (z.B. `1234`). +
   _(Findest du in der URL deiner Vereinsseite: `basketball-bund.net/club/id/XXXX`)_
 . **Speichern** – Das Plugin erkennt automatisch deine Teams und Ligen.
 . **Shortcode einbetten:**
@@ -81,7 +81,7 @@ Fertig! Die Tabelle wird live aus der BBB-API geladen.
 [source]
 ----
 [bbb_table liga_id="47976"]
-[bbb_table liga_id="47976" highlight_club="4468" show_logos="true"]
+[bbb_table liga_id="47976" highlight_club="1234" show_logos="true"]
 [bbb_table liga_id="47976" columns_desktop="platz,teamname,s,n,koerbe,gegenKoerbe,korbdiff"]
 [bbb_table liga_id="47976" show_gb="true"]
 ----
