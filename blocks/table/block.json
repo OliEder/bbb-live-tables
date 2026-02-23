@@ -1,0 +1,30 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "bbb/league-table",
+    "version": "1.0.0",
+    "title": "Liga-Tabelle (Live)",
+    "category": "widgets",
+    "icon": "editor-table",
+    "description": "Zeigt eine Liga-Tabelle live aus der BBB-API. Standalone – kein SportsPress nötig. DSGVO-konform.",
+    "keywords": [ "tabelle", "liga", "standings", "basketball", "table" ],
+    "textdomain": "bbb-live-tables",
+    "supports": {
+        "html": false,
+        "align": [ "wide", "full" ],
+        "spacing": { "margin": true, "padding": true }
+    },
+    "attributes": {
+        "ligaId":              { "type": "number",  "default": 0 },
+        "title":               { "type": "string",  "default": "" },
+        "highlightOwn":        { "type": "boolean", "default": true },
+        "cache":               { "type": "number",  "default": 900 },
+        "showLogos":           { "type": "boolean", "default": true },
+        "columnsDesktop":      { "type": "string",  "default": "" },
+        "columnsMobile":       { "type": "string",  "default": "" },
+        "teamDisplayDesktop":  { "type": "string",  "default": "full" },
+        "teamDisplayMobile":   { "type": "string",  "default": "short" },
+        "showGb":              { "type": "boolean", "default": false }
+    },
+    "editorScript": "file:./editor.js"
+}

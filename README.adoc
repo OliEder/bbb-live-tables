@@ -1,0 +1,297 @@
+= BBB Live Tables
+:author: Oliver-Marcus Eder
+:url-repo: https://github.com/OliEder/bbb-live-tables
+:url-bbb: https://www.basketball-bund.net
+:url-api: https://www.basketball-bund.net/rest
+:icons: font
+:toc: macro
+:toclevels: 2
+
+Liga-Tabellen und Turnier-Brackets aus der {url-bbb}[basketball-bund.net] REST API – live auf deiner WordPress-Website. Standalone, kein SportsPress nötig.
+
+image::https://img.shields.io/badge/WordPress-6.0+-blue?logo=wordpress[WordPress]
+image::https://img.shields.io/badge/PHP-8.1+-purple?logo=php[PHP]
+image::https://img.shields.io/badge/Lizenz-GPL--2.0+-green[License]
+image::https://img.shields.io/badge/Version-1.4-orange[Version]
+
+toc::[]
+
+== Features
+
+* **Liga-Tabellen** – Konfigurierbare Spalten, Team-Logos, berechnete Statistiken (ØK, ØG, K:G, Games Behind)
+* **Turnier-Brackets** – KO-Wettbewerbe (Single Elimination) und Playoff-Serien (Best-of-N)
+* **Responsive** – Getrennte Spalten-Konfiguration für Desktop und Mobil
+* **Drei Ausgabe-Kanäle** – Shortcode, Gutenberg Block, Goodlayers Page Builder Element
+* **DSGVO-konform** – Keine persistente Speicherung fremder Vereinsdaten, nur Transient-Caching
+* **Standalone** – Keine Abhängigkeiten zu SportsPress oder anderen Plugins
+* **Optional erweiterbar** – Lose Kopplung mit https://github.com/OliEder/bbb-sportspress-sync[bbb-sportspress-sync] via Filter Hooks
+
+== Für wen?
+
+Für jeden deutschen Basketballverein, der aktuelle Tabellen und Brackets auf seiner WordPress-Website anzeigen möchte – ohne manuellen Pflegeaufwand. Das Plugin nutzt die öffentliche REST API von {url-bbb}[basketball-bund.net], über die alle Ligen und Wettbewerbe des DBB abrufbar sind.
+
+
+== Installation
+
+=== Manuell (ZIP)
+
+. ZIP-Datei von der {url-repo}/releases[Releases-Seite] herunterladen
+. WordPress Admin → Plugins → Installieren → Plugin hochladen → ZIP auswählen
+. Plugin aktivieren
+
+=== Via Git
+
+[source,bash]
+----
+cd wp-content/plugins/
+git clone https://github.com/OliEder/bbb-live-tables.git
+----
+
+Plugin anschließend im WordPress-Admin aktivieren.
+
+=== Voraussetzungen
+
+* WordPress ≥ 6.0
+* PHP ≥ 8.1
+
+
+== Schnellstart
+
+Nach der Aktivierung: **Einstellungen → BBB Live Tables**
+
+. **Club-ID eintragen** – Die ID deines Vereins auf basketball-bund.net (z.B. `4468`). +
+  _(Findest du in der URL deiner Vereinsseite: `basketball-bund.net/club/id/XXXX`)_
+. **Speichern** – Das Plugin erkennt automatisch deine Teams und Ligen.
+. **Shortcode einbetten:**
+
+[source]
+----
+[bbb_table liga_id="47976"]
+----
+
+Fertig! Die Tabelle wird live aus der BBB-API geladen.
+
+
+== Verwendung
+
+=== Liga-Tabelle
+
+==== Shortcode
+
+[source]
+----
+[bbb_table liga_id="47976"]
+[bbb_table liga_id="47976" highlight_club="4468" show_logos="true"]
+[bbb_table liga_id="47976" columns_desktop="platz,teamname,s,n,koerbe,gegenKoerbe,korbdiff"]
+[bbb_table liga_id="47976" show_gb="true"]
+----
+
+==== Parameter
+
+[cols="2,1,1,4",options="header"]
+|===
+| Parameter | Typ | Default | Beschreibung
+
+| `liga_id` | int | – | *Pflicht.* BBB Liga-ID
+| `title` | string | auto | Titel (Fallback: Liga-Name aus API)
+| `highlight_club` | int | Option | Club-ID für Hervorhebung eigener Teams
+| `cache` | int | 900 | Cache-Dauer in Sekunden (0 = kein Cache)
+| `show_logos` | bool | true | Team-Logos anzeigen
+| `columns_desktop` | string | auto | Spalten Desktop (komma-getrennt)
+| `columns_mobile` | string | auto | Spalten Mobil (komma-getrennt)
+| `team_display_desktop` | string | full | Teamname-Modus: `full`, `short`, `logo`, `nameShort`
+| `team_display_mobile` | string | short | Teamname-Modus Mobil
+| `show_gb` | bool | false | Games Behind anzeigen
+|===
+
+==== Verfügbare Spalten
+
+`platz` · `teamname` · `anzSpiele` · `anzGewinnpunkte` · `anzVerlustpunkte` · `s` · `n` · `gb` · `koerbe` · `gegenKoerbe` · `korbdiff` · `korbRatio` · `ppg` · `oppg` · `punkte` · `quotient`
+
+Berechnete Spalten: `ppg` (Ø Körbe), `oppg` (Ø Gegenkörbe), `korbRatio` (K:G), `gb` (Games Behind)
+
+=== Turnier-Bracket
+
+==== Shortcode
+
+[source]
+----
+[bbb_bracket liga_id="12345"]
+[bbb_bracket liga_id="12345" mode="playoff" best_of="5"]
+----
+
+==== Parameter
+
+[cols="2,1,1,4",options="header"]
+|===
+| Parameter | Typ | Default | Beschreibung
+
+| `liga_id` | int | – | *Pflicht.* BBB Liga-ID des KO-Wettbewerbs
+| `title` | string | auto | Titel
+| `highlight_club` | int | Option | Club-ID für Vereins-Hervorhebung
+| `cache` | int | 3600 | Cache-Dauer in Sekunden
+| `show_dates` | bool | true | Datum anzeigen
+| `show_logos` | bool | true | Team-Logos anzeigen
+| `mode` | string | ko | `ko` (Single Elimination) oder `playoff` (Best-of-N)
+| `best_of` | int | 1 | Spiele pro Serie (1, 3, 5, 7)
+|===
+
+=== Gutenberg Blocks
+
+Zwei Blöcke stehen im Block-Editor zur Verfügung:
+
+* **Liga-Tabelle (Live)** – Kategorie: Widgets
+* **Turnier-Bracket** – Kategorie: Widgets
+
+Wenn ein Sync-Plugin aktiv ist, erscheint eine Liga-Dropdown-Auswahl. Ohne Sync-Plugin: Manuelle Liga-ID-Eingabe.
+
+=== Goodlayers Page Builder
+
+Für Themes mit Goodlayers/BigSlam Page Builder (Shortcode-Variante):
+
+[source]
+----
+[gdlr_core_bbb_table liga-id="47976"]
+[gdlr_core_bbb_bracket liga-id="12345"]
+----
+
+Die Elemente sind im Page Builder unter der Kategorie **Sport** verfügbar.
+
+
+== Liga-ID finden
+
+Die Liga-ID findest du auf {url-bbb}[basketball-bund.net]:
+
+. Navigiere zu deiner Liga (z.B. über Spielbetrieb → Ligen)
+. Die ID steht in der URL: `basketball-bund.net/league/id/*47976*`
+
+Alternativ: Nach Aktivierung des Plugins und Eingabe deiner Club-ID werden alle Ligen deines Vereins mit ihren IDs auf der Einstellungsseite angezeigt (Auto-Discovery).
+
+
+== Einstellungen
+
+Unter **Einstellungen → BBB Live Tables**:
+
+[cols="1,3",options="header"]
+|===
+| Option | Beschreibung
+
+| Club-ID
+| Deine Vereins-ID für automatische Team-Erkennung und Hervorhebung
+
+| Eigene Team-PIDs
+| Manueller Override: Komma-getrennte Team Permanent-IDs
+
+| Primärfarbe
+| Farbe für Tabellenkopf und Hervorhebung
+
+| Linkfarbe
+| Farbe für Links in Tabelle/Bracket
+
+| Überschriftenfarbe
+| Farbe für Titel
+|===
+
+Zusätzlich:
+
+* **Cache leeren** – Löscht alle Tabellen-, Bracket- und Discovery-Caches
+* **Auto-Discovery** – Zeigt erkannte Teams, Ligen und fertige Shortcodes
+
+
+== Erweiterung mit bbb-sportspress-sync
+
+Wenn https://github.com/OliEder/bbb-sportspress-sync[bbb-sportspress-sync] aktiv ist, werden automatisch reichere Daten genutzt:
+
+* Team-Logos aus SportsPress statt BBB-API
+* Klickbare Team- und Ergebnis-Links zu SportsPress-Seiten
+* Theme-Farben aus SportsPress Frontend-CSS
+* Liga-Dropdown im Gutenberg-Editor basierend auf SP-Taxonomien
+
+Die Integration erfolgt automatisch über 6 WordPress Filter Hooks – keine Konfiguration nötig.
+
+=== Eigene Filter registrieren
+
+Entwickler können eigene Filter registrieren, z.B. um Team-Logos aus einer anderen Quelle zu laden:
+
+[source,php]
+----
+add_filter( 'bbb_table_team_logo_url', function( $url, $team_permanent_id ) {
+    return "https://mein-cdn.de/logos/{$team_permanent_id}.png";
+}, 10, 2 );
+----
+
+Verfügbare Filter:
+
+* `bbb_table_team_logo_url` – Team-Logo-URL
+* `bbb_table_team_url` – Team-Link-URL
+* `bbb_table_event_url` – Ergebnis-Link-URL
+* `bbb_table_theme_colors` – Theme-Farben Array
+* `bbb_table_own_team_ids` – Eigene Team Permanent-IDs
+* `bbb_table_liga_options` – Liga-Optionen für Editor-Dropdown
+
+
+== FAQ
+
+*Brauche ich SportsPress?* +
+Nein. Das Plugin funktioniert vollständig standalone. SportsPress ist optional und erweitert nur die Darstellung (Links, Logos).
+
+*Werden Daten lokal gespeichert?* +
+Nein. Die Tabellen- und Bracket-Daten werden live von der BBB-API geladen und nur temporär im WordPress Transient-Cache gehalten (Standard: 15 Min für Tabellen, 1 Std für Brackets).
+
+*Funktioniert es mit meinem Theme?* +
+Das Plugin wurde mit dem BigSlam-Theme (Goodlayers) getestet und enthält spezielle CSS-Kompatibilitäts-Fixes. Es sollte mit jedem WordPress-Theme funktionieren.
+
+*Wie oft werden die Daten aktualisiert?* +
+Bei jedem Seitenaufruf nach Ablauf des Caches. Die Cache-Dauer ist pro Shortcode konfigurierbar. Über die Admin-Seite kann der Cache auch manuell geleert werden.
+
+*Kann ich das Plugin für andere Sportarten nutzen?* +
+Nein. Das Plugin ist spezifisch für die basketball-bund.net API des Deutschen Basketball Bundes.
+
+
+== Entwicklung
+
+=== Lokales Setup (Docker)
+
+[source,bash]
+----
+cd Basketball-Apps/wp-local/
+docker compose up -d
+./setup.sh
+----
+
+WordPress läuft dann unter `http://localhost:8080` (Login: admin/admin). +
+Das Plugin wird automatisch per Volume-Mount eingebunden.
+
+=== Projektstruktur
+
+[source]
+----
+bbb-live-tables/
+├── bbb-live-tables.php              # Plugin-Bootstrap
+├── includes/
+│   ├── class-bbb-api-client.php     # BBB REST API Client
+│   ├── class-bbb-live-table.php     # Liga-Tabelle (Shortcode + Block)
+│   ├── class-bbb-tournament-bracket.php  # Bracket (Shortcode + Block + REST)
+│   ├── class-bbb-goodlayers-elements.php # Goodlayers Page Builder
+│   └── class-bbb-tables-admin.php   # Admin-Einstellungen
+├── blocks/
+│   ├── table/                       # Gutenberg Block: Tabelle
+│   └── bracket/                     # Gutenberg Block: Bracket
+└── docs/
+    └── arc42-bbb-live-tables.adoc   # Architekturdokumentation
+----
+
+
+== Lizenz
+
+Dieses Plugin ist lizenziert unter der https://www.gnu.org/licenses/gpl-2.0.html[GPL-2.0+].
+
+
+== Autor
+
+Entwickelt von https://github.com/OliEder[Oliver-Marcus Eder] – Basketballtrainer und Softwareentwickler aus der Oberpfalz, Bayern.
+
+Wenn dir das Plugin nützt, freue ich mich über einen Kaffee:
+
+* ☕ https://buymeacoffee.com/olivermarcus.eder[Buy Me a Coffee]
+* 🎁 https://ko-fi.com/olieder[Ko-fi]

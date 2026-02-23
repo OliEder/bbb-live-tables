@@ -1,0 +1,831 @@
+= BBB Live Tables – Architekturdokumentation (arc42)
+:author: Oliver-Marcus Eder
+:revdate: 2026-02-23
+:version: 1.4
+:toc: left
+:toclevels: 3
+:icons: font
+:source-highlighter: rouge
+:sectnums:
+
+// ════════════════════════════════════════════════════════════
+// 1. Einführung und Ziele
+// ════════════════════════════════════════════════════════════
+
+== Einführung und Ziele
+
+=== Aufgabenstellung
+
+BBB Live Tables ist ein WordPress-Plugin, das Liga-Tabellen und Turnier-Brackets des Deutschen Basketball Bundes (DBB) live auf einer Vereinswebsite darstellt. Die Daten werden über die öffentliche REST API von https://www.basketball-bund.net[basketball-bund.net] (BBB) bezogen.
+
+Das Plugin wurde für den Basketballverein **Fibalon Baskets Neumarkt** (BBB Club-ID: 4468) entwickelt, ist aber für jeden deutschen Basketballverein nutzbar.
+
+=== Wesentliche Features
+
+* **Liga-Tabellen** mit konfigurierbaren Spalten (Desktop/Mobil), Team-Logos, berechneten Statistiken (ØK, ØG, K:G, GB)
+* **Turnier-Brackets** für KO-Wettbewerbe (Single Elimination) und Playoff-Serien (Best-of-N)
+* **Drei Ausgabe-Kanäle:** WordPress Shortcode, Gutenberg Block, Goodlayers Page Builder Element
+* **Standalone-Betrieb** ohne weitere Plugin-Abhängigkeiten
+* **Optionale Integration** mit `bbb-sportspress-sync` via WordPress Filter Hooks (lose Kopplung)
+
+=== Qualitätsziele
+
+[cols="1,3,1",options="header"]
+|===
+| Priorität | Qualitätsziel | Maßnahme
+
+| 1
+| **DSGVO-Konformität / Datensparsamkeit**
+| Keine persistente Speicherung fremder Vereinsdaten. Nur Transient-Caching.
+
+| 2
+| **Wartbarkeit / Unabhängigkeit**
+| Kein SportsPress, kein externes Build-System, reines PHP + Vanilla JS.
+
+| 3
+| **Performance**
+| Transient-Caching aller API-Responses. Keine API-Calls bei gecachtem Content.
+
+| 4
+| **Theme-Kompatibilität**
+| Getestet mit BigSlam/Goodlayers. CSS mit `!important` wo nötig (Theme-Override).
+|===
+
+=== Stakeholder
+
+[cols="1,2",options="header"]
+|===
+| Stakeholder | Erwartung
+
+| Vereinstrainer / Webmaster
+| Aktuelle Tabellen + Brackets auf der Website ohne manuellen Pflegeaufwand
+
+| Websitebesucher
+| Schnelle, korrekte, responsive Darstellung auf Desktop und Mobil
+
+| Datenschutzbeauftragter
+| Keine unnötige Speicherung personenbezogener Daten (Spielernamen etc.)
+
+| Plugin-Entwickler
+| Saubere Schnittstelle zur Erweiterung via Filter Hooks
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// 2. Randbedingungen
+// ════════════════════════════════════════════════════════════
+
+== Randbedingungen
+
+=== Technische Randbedingungen
+
+[cols="1,3",options="header"]
+|===
+| Randbedingung | Erläuterung
+
+| PHP ≥ 8.1
+| Union Types, Named Arguments, Enums
+
+| WordPress ≥ 6.0
+| Block Editor API v3, `register_block_type` mit `block.json`
+
+| Kein Build-Tooling
+| Keine npm/webpack-Pipeline. Editor-JS als Vanilla `wp.element` / `wp.components`.
+
+| BBB REST API
+| Öffentlich, ohne Authentifizierung. Rate Limit ~1 req/s empfohlen.
+
+| PHP 8.5 inkompatibel
+| SportsPress Pro + Goodlayers crashen unter PHP 8.5. Maximal PHP 8.3 nutzen.
+|===
+
+=== Organisatorische Randbedingungen
+
+[cols="1,3",options="header"]
+|===
+| Randbedingung | Erläuterung
+
+| Lizenz
+| GPL-2.0+ (WordPress-Ökosystem)
+
+| Produktiv-Theme
+| BigSlam (Goodlayers/gdlr_core Framework) – kein Gutenberg-Standard-Theme
+
+| Hosting
+| Hetzner Webhosting (konsoleH), kein Root-Zugriff, kein Composer
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// 3. Kontextabgrenzung
+// ════════════════════════════════════════════════════════════
+
+== Kontextabgrenzung
+
+=== Fachlicher Kontext
+
+[source]
+----
+                ┌────────────────────┐
+                │   Website-Besucher │
+                └────────┬───────────┘
+                         │ HTTP (Browser)
+                         ▼
+              ┌──────────────────────┐
+              │   WordPress Website  │
+              │  ┌────────────────┐  │
+              │  │ BBB Live Tables│  │
+              │  └───────┬────────┘  │
+              └──────────┼───────────┘
+                         │ HTTPS REST
+                         ▼
+              ┌──────────────────────┐
+              │ basketball-bund.net  │
+              │     REST API         │
+              └──────────────────────┘
+----
+
+=== Technischer Kontext
+
+[cols="1,1,2",options="header"]
+|===
+| Schnittstelle | Technologie | Beschreibung
+
+| BBB REST API
+| HTTPS / JSON
+| `+https://www.basketball-bund.net/rest/+` – Liga-Tabellen, Spieltage, Team-Discovery
+
+| WordPress Shortcode API
+| PHP
+| `[bbb_table]`, `[bbb_bracket]`
+
+| WordPress Block API
+| PHP + JS
+| `bbb/league-table`, `bbb/tournament-bracket` (Gutenberg)
+
+| Goodlayers Page Builder
+| PHP (Filter)
+| `[gdlr_core_bbb_table]`, `[gdlr_core_bbb_bracket]`
+
+| WordPress REST API
+| HTTPS / JSON
+| `/wp-json/bbb/v1/leagues` – Liga-Liste für Block-Editor
+
+| Filter Hooks
+| PHP
+| 6 Hooks für optionale Integration mit `bbb-sportspress-sync`
+|===
+
+==== BBB REST API Endpoints
+
+[cols="2,3",options="header"]
+|===
+| Endpoint | Zweck
+
+| `/rest/competition/table/id/{ligaId}`
+| Liga-Tabelle (Platzierung, Punkte, Körbe etc.)
+
+| `/rest/competition/id/{ligaId}/matchday/{n}`
+| Spieltag einer KO-Liga (Matches pro Runde)
+
+| `/rest/club/id/{clubId}/actualmatches`
+| Team-Discovery: Alle Teams + Ligen eines Vereins
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// 4. Lösungsstrategie
+// ════════════════════════════════════════════════════════════
+
+== Lösungsstrategie
+
+=== Kernentscheidungen
+
+[cols="1,3",options="header"]
+|===
+| Entscheidung | Begründung
+
+| **Standalone ohne SportsPress**
+| Viele Vereinswebsites nutzen kein SportsPress. Tabellen + Brackets sind der häufigste Bedarf.
+
+| **Live-Rendering statt lokale Kopie**
+| DSGVO: Keine persistente Speicherung fremder Vereinsdaten. Tabelle wird bei jedem (Cache-Miss-)Aufruf von der BBB-API geladen.
+
+| **Transient-Caching**
+| WordPress Transients als Cache-Layer. Default 15 Min (Tabelle) / 60 Min (Bracket). Invalidierung über Admin.
+
+| **Filter Hooks statt harte Abhängigkeit**
+| 6 WordPress Filter Hooks ermöglichen dem Sync-Plugin, reichere Daten (SP-Logos, SP-Links, SP-Farben) einzuschleusen, ohne dass das Standalone-Plugin davon wissen muss.
+
+| **Drei Ausgabe-Kanäle**
+| Shortcode (universell), Gutenberg Block (moderner Editor), Goodlayers Element (BigSlam Page Builder) – gleiche Render-Logik, verschiedene Eingabe-UIs.
+
+| **CSS inline statt externes Stylesheet**
+| Vermeidet zusätzlichen HTTP-Request. CSS wird einmal pro Pageload injected (`$css_injected` Flag). Theme-Farben dynamisch aus Optionen/Filtern.
+|===
+
+=== Plugin-Ladereihenfolge
+
+[source]
+----
+plugins_loaded Priority 10:  bbb-sportspress-sync (definiert BBB_SYNC_VERSION)
+plugins_loaded Priority 20:  bbb-live-tables      (prüft BBB_SYNC_VERSION + BBB_TABLES_VERSION)
+----
+
+Wenn beide aktiv: Sync-Plugin registriert Filter-Callbacks → Standalone nutzt automatisch SP-Daten.
+Wenn nur Standalone: Eigene Defaults (BBB-API-Logos, keine Team-Links).
+
+
+// ════════════════════════════════════════════════════════════
+// 5. Bausteinsicht
+// ════════════════════════════════════════════════════════════
+
+== Bausteinsicht
+
+=== Ebene 1: Plugin-Struktur
+
+[source]
+----
+bbb-live-tables/
+├── bbb-live-tables.php                   # Bootstrap, Konstanten, Class-Loading
+├── includes/
+│   ├── class-bbb-api-client.php          # BBB REST API Wrapper (stripped)
+│   ├── class-bbb-live-table.php          # Liga-Tabelle: Shortcode + Block + Rendering
+│   ├── class-bbb-tournament-bracket.php  # Bracket: Shortcode + Block + REST + Rendering
+│   ├── class-bbb-goodlayers-elements.php # Goodlayers Page Builder Elemente
+│   └── class-bbb-tables-admin.php        # Admin-Einstellungsseite
+└── blocks/
+    ├── table/                            # Gutenberg Block: Liga-Tabelle
+    │   ├── block.json
+    │   ├── editor.asset.php
+    │   └── editor.js
+    └── bracket/                          # Gutenberg Block: Turnier-Bracket
+        ├── block.json
+        ├── editor.asset.php
+        └── editor.js
+----
+
+=== Ebene 2: Bausteinbeschreibungen
+
+==== BBB_Api_Client
+
+**Verantwortung:** HTTP-Kommunikation mit der BBB REST API.
+
+* Stripped-Variante: Nur Endpoints für Tabelle, Bracket und Team-Discovery
+* Rate Limiting (1 req/s Throttle)
+* Error Handling → `WP_Error`
+* Logging nach `error_log` (nur bei `WP_DEBUG`)
+* Conditional Loading: Wird _nicht_ geladen wenn das Sync-Plugin seinen eigenen (erweiterten) Client mitbringt (`class_exists('BBB_Api_Client')`)
+
+==== BBB_Live_Table
+
+**Verantwortung:** Rendering der Liga-Tabelle in allen drei Ausgabe-Kanälen.
+
+Kernfunktionen:
+
+* Shortcode `[bbb_table]` mit 10 Parametern
+* Gutenberg Block `bbb/league-table` mit ServerSideRender
+* Spalten-Konfiguration (Desktop/Mobil getrennt)
+* Berechnete Spalten: `ppg` (ØK), `oppg` (ØG), `korbRatio` (K:G), `gb` (Games Behind)
+* Team-Display-Modi: `full`, `short`, `logo`, `nameShort`
+* Responsive CSS (Spalten-Visibility per Breakpoint)
+* Theme-Farben via Filter oder Plugin-Settings
+* Eigene-Teams-Highlighting via Club-ID
+* Transient-Cache mit konfigurierbarer TTL
+
+===== Shortcode-Parameter `[bbb_table]`
+
+[cols="2,1,1,3",options="header"]
+|===
+| Parameter | Typ | Default | Beschreibung
+
+| `liga_id` | int | (Pflicht) | BBB Liga-ID
+| `title` | string | API | Anzeige-Titel (Fallback: Liga-Name aus API)
+| `highlight_club` | int | Option | Club-ID für Team-Hervorhebung
+| `cache` | int | 900 | Cache-TTL in Sekunden
+| `show_logos` | bool | true | Team-Logos anzeigen
+| `columns_desktop` | string | s. Default | Komma-getrennte Spalten-Keys
+| `columns_mobile` | string | s. Default | Komma-getrennte Spalten-Keys (Mobil)
+| `team_display_desktop` | string | full | Teamname-Modus Desktop
+| `team_display_mobile` | string | short | Teamname-Modus Mobil
+| `show_gb` | bool | false | Games Behind Spalte (Opt-in)
+|===
+
+Default Desktop: `platz,teamname,anzSpiele,anzGewinnpunkte,s,n,korbRatio,ppg,oppg,korbdiff` +
+Default Mobile: `platz,teamname,s,n,korbdiff`
+
+===== Verfügbare Spalten (COLUMN_MAP)
+
+[cols="2,1,3,1",options="header"]
+|===
+| Key | Label | Beschreibung | Align
+
+| `platz` | # | Tabellenplatz | center
+| `teamname` | Team | Mannschaft (mit Logo/Link je nach Modus) | left
+| `anzSpiele` | Sp | Anzahl Spiele | center
+| `anzGewinnpunkte` | GP | Gewinnpunkte | center
+| `anzVerlustpunkte` | VP | Verlustpunkte | center
+| `s` | S | Siege | center
+| `n` | N | Niederlagen | center
+| `gb` | GB | Games Behind (Opt-in, berechnet) | center
+| `koerbe` | Körbe | Erzielte Körbe | right
+| `gegenKoerbe` | Geg. | Erhaltene Körbe | right
+| `korbdiff` | +/− | Korbdifferenz (mit Farbkodierung) | right
+| `korbRatio` | K:G | Körbe : Gegenkörbe (berechnet) | center
+| `ppg` | ØK | Punkte pro Spiel (berechnet) | right
+| `oppg` | ØG | Gegenkörbe pro Spiel (berechnet) | right
+| `punkte` | Pkt | Tabellenpunkte | center
+| `quotient` | Quo. | Siegquotient | right
+|===
+
+==== BBB_Tournament_Bracket
+
+**Verantwortung:** Rendering von KO- und Playoff-Brackets.
+
+Kernfunktionen:
+
+* Shortcode `[bbb_bracket]` mit 8 Parametern
+* Gutenberg Block `bbb/tournament-bracket`
+* REST-Endpoint `/wp-json/bbb/v1/leagues` (Liga-Liste für Editor)
+* Zwei Modi: `ko` (Single Elimination) und `playoff` (Best-of-N Serien)
+* Automatische Rundenbezeichnung (Achtelfinale → Viertelfinale → Halbfinale → Finale)
+* Freilos-Erkennung (`permanentId=null`, "Freilos1", "?")
+* Gewinner-Hervorhebung (grün) + Verlierer ausgegraut
+* Eigener Verein farblich markiert
+* Team-Logos + Event-Links via Filter Hooks
+* Responsive CSS (horizontal scroll, mobile stack)
+* Transient-Cache mit konfigurierbarer TTL
+
+===== Shortcode-Parameter `[bbb_bracket]`
+
+[cols="2,1,1,3",options="header"]
+|===
+| Parameter | Typ | Default | Beschreibung
+
+| `liga_id` | int | (Pflicht) | BBB Liga-ID des KO-Wettbewerbs
+| `title` | string | API | Anzeige-Titel
+| `highlight_club` | int | Option | Club-ID für Vereins-Hervorhebung
+| `cache` | int | 3600 | Cache-TTL in Sekunden
+| `show_dates` | bool | true | Datum anzeigen
+| `show_logos` | bool | true | Team-Logos anzeigen
+| `mode` | string | ko | `ko` (Single Elimination) oder `playoff` (Best-of-N)
+| `best_of` | int | 1 | Spiele pro Serie (1, 3, 5, 7) – nur bei `mode="playoff"`
+|===
+
+==== BBB_Goodlayers_Elements
+
+**Verantwortung:** Integration mit dem Goodlayers/BigSlam Page Builder.
+
+* Registriert zwei Page Builder Elemente (Kategorie "Sport")
+* `[gdlr_core_bbb_table]` und `[gdlr_core_bbb_bracket]`
+* Liga-Dropdown via Filter `bbb_table_liga_options` (mit Sync-Plugin: SP-basiert, ohne: manuell)
+* Wird _nicht_ geladen wenn `BBB_SYNC_VERSION` definiert ist (Sync-Plugin übernimmt)
+
+==== BBB_Tables_Admin
+
+**Verantwortung:** WordPress Admin-Einstellungsseite (Einstellungen → BBB Live Tables).
+
+Optionen:
+
+[cols="2,1,2",options="header"]
+|===
+| Option | Typ | Beschreibung
+
+| `bbb_tables_club_id` | int | Club-ID für Hervorhebung eigener Teams
+| `bbb_tables_own_team_pids` | string | Komma-getrennte Team-PIDs (Override für Auto-Discovery)
+| `bbb_tables_color_primary` | hex | Primärfarbe (Tabellenkopf, Hervorhebung)
+| `bbb_tables_color_link` | hex | Linkfarbe
+| `bbb_tables_color_heading` | hex | Überschriftenfarbe
+|===
+
+Zusatzfunktionen:
+
+* Cache leeren (Tabellen + Brackets + Discovery-Caches)
+* Auto-Discovery-Anzeige (eigene Teams, Ligen, Shortcodes) wenn Club-ID gesetzt
+* Hinweis wenn Sync-Plugin aktiv ist
+* Filter-Hooks-Dokumentation
+
+
+// ════════════════════════════════════════════════════════════
+// 6. Laufzeitsicht
+// ════════════════════════════════════════════════════════════
+
+== Laufzeitsicht
+
+=== Szenario: Tabelle rendern (Cache-Miss)
+
+[source]
+----
+Browser                 WordPress              BBB_Live_Table         BBB_Api_Client         basketball-bund.net
+  │  GET /spielplan/        │                        │                      │                      │
+  │─────────────────────────►                        │                      │                      │
+  │                         │  do_shortcode()        │                      │                      │
+  │                         │───────────────────────►│                      │                      │
+  │                         │                        │  get_table_data()    │                      │
+  │                         │                        │  → Transient miss    │                      │
+  │                         │                        │──────────────────────►                      │
+  │                         │                        │                      │  GET /competition/    │
+  │                         │                        │                      │  table/id/{ligaId}    │
+  │                         │                        │                      │─────────────────────►│
+  │                         │                        │                      │◄─────────────────────│
+  │                         │                        │                      │  JSON Response        │
+  │                         │                        │◄──────────────────────                      │
+  │                         │                        │  → set_transient()   │                      │
+  │                         │                        │                      │                      │
+  │                         │                        │  apply_filters()     │                      │
+  │                         │                        │  (Logos, Links,      │                      │
+  │                         │                        │   Farben, Teams)     │                      │
+  │                         │                        │                      │                      │
+  │                         │                        │  render_table_html() │                      │
+  │                         │◄───────────────────────│                      │                      │
+  │◄─────────────────────────  HTML Response         │                      │                      │
+----
+
+=== Szenario: Tabelle rendern (Cache-Hit)
+
+Kein API-Call. Transient wird direkt gelesen → HTML gerendert. Typische Antwortzeit < 50ms.
+
+=== Szenario: Bracket mit Freilos
+
+Matches mit `teamPermanentId: null` oder Teamname "Freilos1" / "?" werden erkannt und als Freilos dargestellt. Der Gewinner der Gegenpartie rückt automatisch in die nächste Runde.
+
+
+// ════════════════════════════════════════════════════════════
+// 7. Verteilungssicht
+// ════════════════════════════════════════════════════════════
+
+== Verteilungssicht
+
+=== Produktiv
+
+[source]
+----
+Hetzner Webhosting (konsoleH)
+├── WordPress 6.9.1
+│   ├── PHP 8.3
+│   ├── BigSlam Child Theme (Goodlayers)
+│   ├── SportsPress Pro 2.7.28
+│   ├── bbb-live-tables/          ← Standalone Plugin
+│   └── bbb-sportspress-sync/    ← Sync Plugin
+└── MariaDB
+----
+
+=== Lokal (Docker)
+
+[source]
+----
+wp-local/
+├── docker-compose.yml
+│   ├── WordPress:  localhost:8080
+│   ├── phpMyAdmin: localhost:8081
+│   └── MariaDB:    localhost:3307
+├── setup.sh (automatische Einrichtung)
+└── Volume Mounts:
+    ├── ../bbb-live-tables → wp-content/plugins/bbb-live-tables
+    └── ../bbb-sportspress-sync → wp-content/plugins/bbb-sportspress-sync
+----
+
+
+// ════════════════════════════════════════════════════════════
+// 8. Querschnittliche Konzepte
+// ════════════════════════════════════════════════════════════
+
+== Querschnittliche Konzepte
+
+=== Caching-Strategie
+
+[cols="2,1,2",options="header"]
+|===
+| Daten | TTL (Default) | Transient-Key
+
+| Liga-Tabelle
+| 900s (15 Min)
+| `bbb_table_{liga_id}`
+
+| Turnier-Bracket
+| 3600s (1 Std)
+| `bbb_bracket_{liga_id}`
+
+| Club-Teams (Discovery)
+| 86400s (24 Std)
+| `bbb_club_teams_{club_id}`
+
+| Club-Ligen (Discovery)
+| 86400s (24 Std)
+| `bbb_club_leagues_{club_id}`
+|===
+
+Invalidierung:
+
+* Admin-Button "Cache leeren"
+* Sync-Plugin invalidiert bei erfolgreichem Sync
+* Gutenberg-Editor: Cache auf max 60s reduziert (Preview-Modus)
+
+=== Filter-Hook-Architektur
+
+Sechs Filter Hooks ermöglichen die lose Kopplung mit `bbb-sportspress-sync`:
+
+[source,php]
+----
+// Logo: Filter → BBB-API-Fallback
+$url = apply_filters('bbb_table_team_logo_url', '', $team_pid);
+if (!$url) {
+    $url = "https://www.basketball-bund.net/media/team/{$team_pid}/logo";
+}
+
+// Team-Link: Filter → leer (kein Link)
+$url = apply_filters('bbb_table_team_url', '', $team_pid);
+
+// Event-Link: Filter → leer (kein Link)
+$url = apply_filters('bbb_table_event_url', '', $match_id);
+
+// Farben: Filter → Plugin-Settings → Goodlayers Theme
+$colors = apply_filters('bbb_table_theme_colors', $defaults);
+
+// Eigene Teams: Filter → API Auto-Discovery → manuelle PIDs
+$ids = apply_filters('bbb_table_own_team_ids', [], $club_id);
+
+// Liga-Optionen für Editor: Filter → leeres Array
+$options = apply_filters('bbb_table_liga_options', [], $type_filter);
+----
+
+[cols="2,3,3",options="header"]
+|===
+| Filter | Ohne Sync-Plugin | Mit Sync-Plugin
+
+| `bbb_table_team_logo_url`
+| BBB Media URL
+| SportsPress Featured Image (sportspress-fit-icon)
+
+| `bbb_table_team_url`
+| Leer (Plain Text)
+| SP Team Post Permalink
+
+| `bbb_table_event_url`
+| Leer (kein Link)
+| SP Event Post Permalink
+
+| `bbb_table_theme_colors`
+| Plugin-Settings + Goodlayers Fallback
+| SP Frontend CSS Colors + Goodlayers
+
+| `bbb_table_own_team_ids`
+| API Auto-Discovery (24h Cache)
+| SP-Team-Posts mit `_bbb_is_own_team` Meta
+
+| `bbb_table_liga_options`
+| Leeres Array (manuelle Liga-ID)
+| `sp_league` Taxonomy Terms mit `_bbb_liga_id`
+|===
+
+=== Eigene-Teams-Erkennung (Fallback-Kette)
+
+. Filter `bbb_table_own_team_ids` (Sync-Plugin liefert SP-basierte IDs)
+. API Auto-Discovery via `get_club_team_ids()` (24h Transient-Cache)
+. Manuelle Liste aus `bbb_tables_own_team_pids` Option
+
+=== BigSlam-CSS-Kompatibilität
+
+Das BigSlam-Theme überschreibt globale `<th>`-Styles mit dunklem Hintergrund. Das Plugin reagiert mit:
+
+* `tbody td, tbody th { background:transparent!important; color:#222!important }`
+* Zebrastreifen auf 90% Aufhellung (statt 97% – deutlicher sichtbar)
+* Hover, Own-Team-Highlighting etc. mit `!important` für `td` UND `th`
+
+=== DSGVO / Datensparsamkeit
+
+* **Keine persistente Speicherung** fremder Vereinsdaten
+* Nur WordPress Transients als Cache (automatisch ablaufend)
+* Team-Logos werden direkt von der BBB-API geladen (kein lokaler Download)
+* Keine Cookies, kein Tracking, kein Analytics
+* Keine Spielernamen in Tabellen (nur Teamnamen)
+
+
+// ════════════════════════════════════════════════════════════
+// 9. Architekturentscheidungen
+// ════════════════════════════════════════════════════════════
+
+== Architekturentscheidungen
+
+=== ADR-001: Standalone statt SportsPress-Erweiterung
+
+**Kontext:** Ursprünglich war die Tabellen-/Bracket-Funktionalität Teil von `bbb-sportspress-sync`. Viele Vereinswebsites nutzen aber kein SportsPress.
+
+**Entscheidung:** Extraktion als eigenständiges Plugin mit Filter-Hook-Integration.
+
+**Konsequenzen:**
+
+* (+) Breitere Nutzbarkeit ohne SP-Abhängigkeit
+* (+) DSGVO-konformer (kein lokaler SP-Datenbestand nötig für Tabellen)
+* (+) Unabhängige Versionierung
+* (−) Duplizierung des API-Clients (stripped vs. full)
+* (−) Conditional Loading Logik in beiden Plugins
+
+=== ADR-002: Filter Hooks statt Events oder Service Locator
+
+**Kontext:** Die Integration zwischen Standalone und Sync-Plugin musste lose gekoppelt sein.
+
+**Entscheidung:** WordPress `apply_filters()` mit sinnvollen Standalone-Defaults.
+
+**Konsequenzen:**
+
+* (+) Null-Konfiguration: Beide Plugins erkennen sich automatisch
+* (+) WordPress-nativer Ansatz, keine Custom-Infrastruktur
+* (+) Drittanbieter können eigene Filter registrieren
+* (−) Keine Typisierung der Filter-Rückgabewerte
+
+=== ADR-003: Inline-CSS statt externes Stylesheet
+
+**Kontext:** Theme-Farben sind dynamisch (Optionen, Goodlayers, SP-Frontend-Farben).
+
+**Entscheidung:** CSS wird inline generiert mit dynamischen Farben aus der Fallback-Kette.
+
+**Konsequenzen:**
+
+* (+) Kein extra HTTP-Request
+* (+) Farben passen sich automatisch an Theme/Optionen an
+* (+) Einmal-Injection via `$css_injected` Flag
+* (−) Nicht cache-bar als separates Asset
+
+=== ADR-004: Goodlayers-Registrierung nur ohne Sync-Plugin
+
+**Kontext:** Beide Plugins registrieren Goodlayers-Elemente mit unterschiedlicher Komplexität (Standalone: manuell, Sync: SP-basiertes Liga-Dropdown).
+
+**Entscheidung:** Standalone prüft `defined('BBB_SYNC_VERSION')` und überspringt bei aktivem Sync-Plugin.
+
+**Konsequenzen:**
+
+* (+) Keine doppelte Registrierung
+* (+) Sync-Plugin liefert automatisch reichere UI
+* (−) Timing-Abhängigkeit (`plugins_loaded` Priority 10 vs 20)
+
+
+// ════════════════════════════════════════════════════════════
+// 10. Qualitätsanforderungen
+// ════════════════════════════════════════════════════════════
+
+== Qualitätsanforderungen
+
+=== Qualitätsbaum
+
+[source]
+----
+Qualität
+├── Funktionalität
+│   ├── Korrekte Tabellendaten (API-Konsistenz)
+│   ├── Bracket-Rundenzuordnung
+│   └── Freilos-Erkennung
+├── Zuverlässigkeit
+│   ├── Graceful Degradation bei API-Ausfall
+│   └── Error-Meldung statt leere Seite
+├── Performance
+│   ├── Cache-Hit < 50ms
+│   └── Kein API-Call bei gültigem Cache
+├── Benutzbarkeit
+│   ├── Responsive Desktop + Mobil
+│   ├── Barrierefreiheit (role="alert", scope="col")
+│   └── Konfigurierbare Spalten
+└── Wartbarkeit
+    ├── Keine externen Build-Dependencies
+    ├── Klare Trennung Standalone / Sync
+    └── Dokumentierte Filter-Hooks
+----
+
+=== Qualitätsszenarien
+
+[cols="1,2,2",options="header"]
+|===
+| ID | Szenario | Erwartung
+
+| QS-1
+| BBB-API antwortet nicht (Timeout)
+| Fehlermeldung im Frontend, kein PHP-Fatal. Gecachte Daten werden weiterhin angezeigt bis Cache abläuft.
+
+| QS-2
+| Liga hat nur 2 Teams
+| Tabelle wird korrekt gerendert, keine Div-by-Zero bei berechneten Spalten.
+
+| QS-3
+| Bracket hat Freilose und TBD-Platzhalter
+| Freilose werden erkannt, Gewinner rücken automatisch weiter, TBD-Runden als Platzhalter.
+
+| QS-4
+| Besucher mit Mobilgerät (< 768px)
+| Mobile Spalten-Konfiguration greift, Team-Namen im `short`-Modus, horizontal scrollbar.
+
+| QS-5
+| Plugin-Update ohne Datenverlust
+| Optionen und Transients bleiben erhalten. Kein Deactivation-Hook löscht Daten.
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// 11. Risiken und technische Schulden
+// ════════════════════════════════════════════════════════════
+
+== Risiken und technische Schulden
+
+[cols="1,2,1,2",options="header"]
+|===
+| ID | Risiko / Schuld | Priorität | Maßnahme
+
+| R-1
+| BBB-API ändert Response-Format ohne Vorwarnung
+| Hoch
+| Defensive Parsing mit `?? []` Fallbacks. Monitoring über `WP_DEBUG` Logs.
+
+| R-2
+| BigSlam-Theme-Update überschreibt CSS-Fixes
+| Mittel
+| `!important` als Absicherung. Nach Theme-Updates visuell prüfen.
+
+| R-3
+| Duplizierter API-Client (stripped vs. full)
+| Niedrig
+| Bewusste Entscheidung. Stripped-Version bleibt minimal und ändert sich selten.
+
+| R-4
+| Legacy-Dateien im Sync-Plugin (Live Table, Bracket, Blocks)
+| Mittel
+| Dienen als Fallback wenn Standalone nicht aktiv. Entfernen nach vollständigem Test beider Szenarien.
+
+| R-5
+| Kein automatisiertes Testing
+| Mittel
+| Docker-Setup vorhanden für manuelles Testen. Automatisierte E2E-Tests als mögliche Erweiterung.
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// 12. Glossar
+// ════════════════════════════════════════════════════════════
+
+== Glossar
+
+[cols="2,4",options="header"]
+|===
+| Begriff | Bedeutung
+
+| BBB
+| basketball-bund.net – Offizielle Website des Deutschen Basketball Bundes (DBB)
+
+| Liga-ID
+| Eindeutige Kennung einer Liga/eines Wettbewerbs in der BBB-API
+
+| Team Permanent-ID (PID)
+| Mannschafts-ID die über Saisons hinweg gleich bleibt (im Gegensatz zur saisonalen Team-ID)
+
+| Club-ID
+| Vereins-ID in der BBB-API (Fibalon Baskets Neumarkt = 4468)
+
+| SP / SportsPress
+| WordPress-Plugin für Sportvereinsverwaltung (Teams, Events, Spieler, Tabellen)
+
+| Goodlayers / gdlr_core
+| Page Builder Framework, genutzt vom BigSlam WordPress-Theme
+
+| Transient
+| WordPress-eigener Key-Value-Cache mit automatischer Ablaufzeit
+
+| Games Behind (GB)
+| Statistik: Rückstand eines Teams auf den Tabellenführer in Siegen
+
+| KO / Single Elimination
+| Turnierformat: Verlierer scheidet direkt aus
+
+| Playoff / Best-of-N
+| Turnierformat: Serie aus N Spielen, wer zuerst Mehrheit gewinnt
+|===
+
+
+// ════════════════════════════════════════════════════════════
+// Anhang: Versionsverlauf
+// ════════════════════════════════════════════════════════════
+
+[appendix]
+== Versionsverlauf
+
+[cols="1,1,4",options="header"]
+|===
+| Version | Datum | Änderungen
+
+| v1.0
+| 2026-02-14
+| Grundfunktion: BBB-API-Anbindung, Liga-Tabelle + Bracket als Gutenberg-Block und Shortcode, Filter-Hook-Architektur
+
+| v1.1
+| 2026-02-15
+| Spalten-Konfiguration Desktop/Mobil, ServerSideRender-Preview im Editor
+
+| v1.2
+| 2026-02-16
+| API-Feld-Normalisierung, Team-Display-Modi (full/short/logo/nameShort), responsive Spaltensteuerung
+
+| v1.3
+| 2026-02-17
+| Games Behind (GB) als Opt-in-Toggle, Cache-Clearing über Admin, Highlight-Toggle, Own-Players-Filter, Admin-Settings-Seite
+
+| v1.4
+| 2026-02-19
+| Berechnete Spalten (ØK, ØG, K:G), Goodlayers-Registrierung mit Sync-Plugin-Erkennung, deutlichere Zebrastreifen, BigSlam-CSS-Kompatibilität, Auto-Discovery in Admin
+|===

@@ -1,0 +1,57 @@
+{
+    "$schema": "https://schemas.wp.org/trunk/block.json",
+    "apiVersion": 3,
+    "name": "bbb/tournament-bracket",
+    "version": "1.0.0",
+    "title": "Turnier-Bracket",
+    "category": "widgets",
+    "icon": "awards",
+    "description": "Zeigt ein KO- oder Playoff-Bracket aus der BBB-API. Unterstützt Single-Elimination und Best-of-N Serien.",
+    "keywords": [ "bracket", "turnier", "playoff", "basketball", "pokal" ],
+    "textdomain": "bbb-live-tables",
+    "supports": {
+        "html": false,
+        "align": [ "wide", "full" ],
+        "spacing": {
+            "margin": true,
+            "padding": true
+        }
+    },
+    "attributes": {
+        "ligaId": {
+            "type": "number",
+            "default": 0
+        },
+        "title": {
+            "type": "string",
+            "default": ""
+        },
+        "highlightClub": {
+            "type": "number",
+            "default": 0
+        },
+        "cache": {
+            "type": "number",
+            "default": 3600
+        },
+        "showDates": {
+            "type": "boolean",
+            "default": true
+        },
+        "showLogos": {
+            "type": "boolean",
+            "default": true
+        },
+        "mode": {
+            "type": "string",
+            "default": "ko",
+            "enum": [ "ko", "playoff" ]
+        },
+        "bestOf": {
+            "type": "number",
+            "default": 1,
+            "enum": [ 1, 3, 5, 7 ]
+        }
+    },
+    "editorScript": "file:./editor.js"
+}
