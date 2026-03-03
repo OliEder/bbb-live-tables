@@ -132,8 +132,7 @@ class BBB_Tournament_Bracket {
 
         $tournament = $this->get_tournament_data( $liga_id, (int) $atts['cache'] );
         if ( is_wp_error( $tournament ) ) {
-            return '<p class="bbb-bracket-error" role="alert">Bracket konnte nicht geladen werden: '
-                   . esc_html( $tournament->get_error_message() ) . '</p>';
+            return '<p class="bbb-bracket-error" role="alert">Bracket konnte nicht geladen werden.</p>';
         }
 
         $title = $atts['title'] ?: ( $tournament['liga_data']['liganame'] ?? "Tournament #{$liga_id}" );
@@ -668,9 +667,15 @@ class BBB_Tournament_Bracket {
      * Standalone-Fallback: BBB Media URL.
      */
     private function get_team_logo_url( int $permanent_id ): string {
-        $fallback = "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
         $url = apply_filters( 'bbb_table_team_logo_url', '', $permanent_id );
-        return $url ?: $fallback;
+        if ( $url ) return $url;
+
+        if ( get_option( 'bbb_tables_logo_proxy', false ) ) {
+            $proxied = $this->api->get_team_logo_data_uri( $permanent_id );
+            if ( $proxied ) return $proxied;
+        }
+
+        return "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
     }
 
     private function shorten_team_name( string $name ): string {
@@ -700,6 +705,7 @@ class BBB_Tournament_Bracket {
 
     public static function invalidate_all_caches(): void {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Fully hardcoded query, no user input
         $wpdb->query(
             "DELETE FROM {$wpdb->options}
              WHERE option_name LIKE '_transient_bbb_bracket_%'

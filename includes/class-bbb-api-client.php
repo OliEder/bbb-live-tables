@@ -19,7 +19,8 @@ defined( 'ABSPATH' ) || exit;
 class BBB_Api_Client {
 
     private string $base_url;
-    private float $rate_limit_delay = 1.0;
+    private float $rate_limit_delay  = 0.5;
+    private float $last_request_time = 0.0;
 
     public function __construct() {
         $this->base_url = BBB_API_BASE_URL;
@@ -99,6 +100,11 @@ class BBB_Api_Client {
         foreach ( $spieltage as $st ) {
             $nr = (int) ( $st['spieltag'] ?? 0 );
             if ( $nr <= 1 || $nr === 0 ) continue;
+
+            if ( $this->is_near_timeout() ) {
+                $this->log( 'Timeout-Guard: Runden-Discovery abgebrochen.', 'warning' );
+                break;
+            }
 
             $this->throttle();
             $round = $this->get_liga_matchday( $liga_id, $nr );
@@ -288,6 +294,10 @@ class BBB_Api_Client {
             $slug = sanitize_title( $name );
 
             // Typ-Erkennung: Liga hat Tabelle?
+            if ( $this->is_near_timeout() ) {
+                $this->log( 'Timeout-Guard: Liga-Discovery abgebrochen.', 'warning' );
+                break;
+            }
             $this->throttle();
             $has_table = $this->check_liga_has_table( $liga_id );
 
@@ -320,6 +330,53 @@ class BBB_Api_Client {
     }
 
     // ─────────────────────────────────────────
+    // LOGO PROXY (DSGVO)
+    // ─────────────────────────────────────────
+
+    /**
+     * Lädt ein Team-Logo server-seitig und liefert es als Data-URI zurück.
+     *
+     * DSGVO-Vorteil: Besucher-Browser verbinden sich nicht mit basketball-bund.net.
+     * Cache: 24 h via Transient. SVG und Dateien > 50 KB werden abgelehnt.
+     *
+     * @param int $permanent_id Team Permanent-ID
+     * @return string Data-URI ("data:image/png;base64,...") oder '' bei Fehler
+     */
+    public function get_team_logo_data_uri( int $permanent_id ): string {
+        $transient_key = "bbb_logo_proxy_{$permanent_id}";
+        $cached = get_transient( $transient_key );
+        if ( $cached !== false ) return $cached;
+
+        $url      = "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
+        $response = wp_remote_get( $url, [
+            'timeout' => 5,
+            'headers' => [ 'Accept' => 'image/*' ],
+        ] );
+
+        if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+            set_transient( $transient_key, '', HOUR_IN_SECONDS );
+            return '';
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        $ct   = wp_remote_retrieve_header( $response, 'content-type' );
+        $mime = strtok( $ct ?: '', ';' ) ?: 'image/png';
+
+        // Nur sichere Bildformate; SVG ausgeschlossen (XSS-Risiko in img src)
+        $allowed_mimes = [ 'image/png', 'image/jpeg', 'image/gif', 'image/webp' ];
+        if ( ! in_array( $mime, $allowed_mimes, true ) || strlen( $body ) > 51200 ) {
+            set_transient( $transient_key, '', HOUR_IN_SECONDS );
+            return '';
+        }
+
+        // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+        $data_uri = 'data:' . $mime . ';base64,' . base64_encode( $body );
+        set_transient( $transient_key, $data_uri, DAY_IN_SECONDS );
+
+        return $data_uri;
+    }
+
+    // ─────────────────────────────────────────
     // HTTP METHODS
     // ─────────────────────────────────────────
 
@@ -331,6 +388,8 @@ class BBB_Api_Client {
             'timeout' => 30,
             'headers' => [ 'Accept' => 'application/json' ],
         ]);
+
+        $this->last_request_time = microtime( true );
 
         return $this->handle_response( $response );
     }
@@ -367,9 +426,28 @@ class BBB_Api_Client {
 
     /**
      * Rate limit throttle.
+     * Schläft nur die verbleibende Zeit seit dem letzten HTTP-Response,
+     * sodass schnelle Requests (lange HTTP-Laufzeit) weniger warten.
      */
     public function throttle(): void {
-        usleep( (int) ( $this->rate_limit_delay * 1_000_000 ) );
+        if ( $this->last_request_time > 0 ) {
+            $elapsed   = microtime( true ) - $this->last_request_time;
+            $remaining = $this->rate_limit_delay - $elapsed;
+            if ( $remaining > 0 ) {
+                usleep( (int) ( $remaining * 1_000_000 ) );
+            }
+        }
+    }
+
+    /**
+     * Prüft ob die PHP-Ausführungszeit fast abgelaufen ist.
+     */
+    private function is_near_timeout( int $buffer_seconds = 5 ): bool {
+        $max_exec = (int) ini_get( 'max_execution_time' );
+        if ( $max_exec === 0 ) return false;
+        $start   = (float) ( $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime( true ) );
+        $elapsed = microtime( true ) - $start;
+        return $elapsed >= ( $max_exec - $buffer_seconds );
     }
 
     private function log( string $message, string $level = 'info' ): void {

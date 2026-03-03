@@ -133,8 +133,7 @@ class BBB_Live_Table {
 
         $table_data = $this->get_table_data( $liga_id, (int) $atts['cache'] );
         if ( is_wp_error( $table_data ) ) {
-            return '<p class="bbb-table-error" role="alert">Tabelle konnte nicht geladen werden: '
-                   . esc_html( $table_data->get_error_message() ) . '</p>';
+            return '<p class="bbb-table-error" role="alert">Tabelle konnte nicht geladen werden.</p>';
         }
 
         $title = $atts['title'] ?: ( $table_data['liga_data']['liganame'] ?? "Tabelle #{$liga_id}" );
@@ -634,6 +633,7 @@ class BBB_Live_Table {
         if ( ! empty( $requested ) ) {
             foreach ( $requested as $key ) {
                 if ( ! array_key_exists( $key, $first ) ) continue;
+                if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) continue;
                 $columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
             }
             return $columns;
@@ -641,6 +641,7 @@ class BBB_Live_Table {
 
         foreach ( array_keys( $first ) as $key ) {
             if ( in_array( $key, self::HIDDEN_COLUMNS, true ) ) continue;
+            if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) continue;
             $columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
         }
 
@@ -704,9 +705,15 @@ class BBB_Live_Table {
      * Standalone-Fallback: BBB Media URL.
      */
     private function get_team_logo_url( int $permanent_id ): string {
-        $fallback = "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
         $url = apply_filters( 'bbb_table_team_logo_url', '', $permanent_id );
-        return $url ?: $fallback;
+        if ( $url ) return $url;
+
+        if ( get_option( 'bbb_tables_logo_proxy', false ) ) {
+            $proxied = $this->api->get_team_logo_data_uri( $permanent_id );
+            if ( $proxied ) return $proxied;
+        }
+
+        return "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
     }
 
     // ═════════════════════════════════════════
@@ -719,6 +726,7 @@ class BBB_Live_Table {
 
     public static function invalidate_all_caches(): void {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Fully hardcoded query, no user input
         $wpdb->query(
             "DELETE FROM {$wpdb->options}
              WHERE option_name LIKE '_transient_bbb_live_table_%'

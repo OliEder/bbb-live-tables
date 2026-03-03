@@ -98,7 +98,12 @@ class BBB_GitHub_Updater {
         $proper_dir  = trailingslashit( dirname( $install_dir ) ) . $this->plugin_slug;
 
         if ( $install_dir !== $proper_dir ) {
-            $wp_filesystem->move( $install_dir, $proper_dir );
+            if ( ! $wp_filesystem->move( $install_dir, $proper_dir ) ) {
+                return new WP_Error(
+                    'bbb_move_failed',
+                    'Plugin konnte nicht in das korrekte Verzeichnis verschoben werden.'
+                );
+            }
             $result['destination'] = $proper_dir;
         }
 

@@ -40,6 +40,11 @@ class BBB_Tables_Admin {
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_primary', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_link', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_heading', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
+        register_setting( 'bbb_tables_settings', 'bbb_tables_logo_proxy', [
+            'type'              => 'boolean',
+            'sanitize_callback' => function( $val ) { return (bool) $val; },
+            'default'           => false,
+        ] );
     }
 
     public function handle_clear_cache(): void {
@@ -48,6 +53,15 @@ class BBB_Tables_Admin {
 
         BBB_Live_Table::invalidate_all_caches();
         BBB_Tournament_Bracket::invalidate_all_caches();
+
+        // Logo-Proxy-Caches leeren
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Fully hardcoded query, no user input
+        $wpdb->query(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name LIKE '_transient_bbb_logo_proxy_%'
+             OR option_name LIKE '_transient_timeout_bbb_logo_proxy_%'"
+        );
 
         // Discovery-Caches leeren
         $club_id = (int) get_option( 'bbb_tables_club_id', 0 );
@@ -67,7 +81,7 @@ class BBB_Tables_Admin {
     // ═════════════════════════════════════════
 
     public function render_page(): void {
-        $tab = $_GET['tab'] ?? 'club';
+        $tab = sanitize_key( $_GET['tab'] ?? 'club' );
         ?>
         <div class="wrap">
             <h1>BBB Live Tables</h1>
@@ -149,6 +163,7 @@ class BBB_Tables_Admin {
                         </td>
                     </tr>
                 </table>
+                <input type="hidden" name="bbb_tables_logo_proxy" value="<?php echo esc_attr( get_option( 'bbb_tables_logo_proxy', false ) ? '1' : '0' ); ?>">
                 <?php submit_button( 'Speichern' ); ?>
             </form>
         </div>
@@ -398,6 +413,24 @@ class BBB_Tables_Admin {
                             <p class="description">
                                 Textfarbe der Spaltenüberschriften in der Tabellen-Kopfzeile. Muss gut lesbar auf der Primärfarbe sein –
                                 bei einer dunklen Primärfarbe typischerweise <code>#ffffff</code> (weiß), bei heller Primärfarbe entsprechend dunkel.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr><th colspan="2"><hr style="margin:4px 0;"></th></tr>
+                    <tr>
+                        <th><label for="bbb_tables_logo_proxy">Team-Logos (DSGVO)</label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="bbb_tables_logo_proxy" name="bbb_tables_logo_proxy" value="1"
+                                       <?php checked( get_option( 'bbb_tables_logo_proxy', false ) ); ?>>
+                                Logos server-seitig laden &amp; cachen (DSGVO-konform)
+                            </label>
+                            <p class="description">
+                                <strong>Deaktiviert (Standard):</strong> Logos werden direkt vom Browser von basketball-bund.net geladen –
+                                die IP-Adresse des Besuchers wird dabei an BBB übertragen.<br>
+                                <strong>Aktiviert:</strong> WordPress lädt jedes Logo einmalig server-seitig, cached es 24 Stunden
+                                und liefert es als Data-URI aus. Besucher-Browser verbinden sich nicht mit BBB.
+                                Cache wird beim „Cache leeren" zurückgesetzt.
                             </p>
                         </td>
                     </tr>
