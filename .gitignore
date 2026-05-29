@@ -24,3 +24,8 @@ debug.log
 # Archives
 *.zip
 *.tar.gz
+
+# Composer / PHPCS dev dependencies
+/vendor/
+composer.lock
+*.cache
