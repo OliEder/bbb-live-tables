@@ -24,3 +24,14 @@ debug.log
 # Archives
 *.zip
 *.tar.gz
+
+# Composer / PHPCS dev dependencies
+/vendor/
+composer.lock
+*.cache
+
+# Test / static-analysis artifacts
+.phpunit.cache/
+.phpunit.result.cache
+coverage.xml
+/coverage/

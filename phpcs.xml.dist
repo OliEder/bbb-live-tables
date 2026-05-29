@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+<ruleset name="BBB Live Tables">
+	<description>WordPress Coding Standards für das BBB Live Tables Plugin.</description>
+
+	<file>.</file>
+	<arg name="extensions" value="php"/>
+	<arg name="basepath" value="."/>
+	<arg name="colors"/>
+	<arg name="parallel" value="8"/>
+	<arg value="ps"/>
+
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/blocks/*/editor.asset.php</exclude-pattern>
+	<exclude-pattern>*/tests/*</exclude-pattern>
+	<exclude-pattern>phpstan-bootstrap.php</exclude-pattern>
+	<exclude-pattern>*/.phpunit.cache/*</exclude-pattern>
+
+	<rule ref="WordPress"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="bbb-live-tables"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="bbb"/>
+				<element value="BBB"/>
+				<element value="bbb_tables"/>
+			</property>
+		</properties>
+	</rule>
+
+	<config name="minimum_wp_version" value="6.0"/>
+
+	<!--
+		Retrofit-Politik: Sicherheits- und Korrektheits-Sniffs bleiben
+		blockierend. Rein kosmetische / dokumentarische Regeln sind vorerst
+		deaktiviert, damit der CI-Gate aussagekräftig bleibt und nicht an
+		Stilfragen scheitert. Schrittweise wieder aktivierbar.
+	-->
+
+	<!-- Yoda-Conditions: reine Stilpräferenz -->
+	<rule ref="WordPress.PHP.YodaConditions.NotYoda">
+		<severity>0</severity>
+	</rule>
+
+	<!-- Fehlende/abweichende DocBlocks: Doku, kein Defekt -->
+	<rule ref="Squiz.Commenting">
+		<severity>0</severity>
+	</rule>
+
+	<!-- Kurz-Ternary (?:) wird im Code bewusst genutzt -->
+	<rule ref="Universal.Operators.DisallowShortTernary.Found">
+		<severity>0</severity>
+	</rule>
+
+	<!--
+		WP-Core-Hook-Namen (init, plugins_loaded, …) und WP-eigene
+		Klassennamen in Signaturen lassen sich nicht präfixen.
+	-->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound">
+		<severity>0</severity>
+	</rule>
+
+	<!--
+		Reservierte Wörter als Parameter-Namen ($match, $default): eine
+		Umbenennung wäre eine API-/Lesbarkeits-Änderung, kein Lint-Quickfix.
+	-->
+	<rule ref="Universal.NamingConventions.NoReservedKeywordParameterNames">
+		<severity>0</severity>
+	</rule>
+
+	<!--
+		Das Plugin nutzt seit jeher das etablierte Präfix "BBB"/"bbb" (3 Zeichen)
+		für Klassen-, Konstanten- und Funktionsnamen. Diese sind Teil der
+		öffentlichen API (u. a. von bbb-sportspress-sync per class_exists() /
+		BBB_API_BASE_URL genutzt); eine Umbenennung wäre ein Breaking Change.
+	-->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.ShortPrefixPassed">
+		<severity>0</severity>
+	</rule>
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedClassFound">
+		<severity>0</severity>
+	</rule>
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound">
+		<severity>0</severity>
+	</rule>
+
+	<!--
+		Gutenberg render_callback-Signaturen ( $attributes, $content, $block )
+		sind durch WordPress vorgegeben; ungenutzte Parameter sind dort normal.
+	-->
+	<rule ref="Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed">
+		<severity>0</severity>
+	</rule>
+</ruleset>
