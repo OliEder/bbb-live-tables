@@ -150,7 +150,7 @@ class BBB_Tournament_Bracket {
 
         return $css . $this->render_bracket_html(
             $tournament,
-            esc_html( $title ),
+            $title,
             (int) $atts['highlight_club'],
             $atts['show_dates'] === 'true',
             $atts['show_logos'] === 'true',
@@ -295,7 +295,7 @@ class BBB_Tournament_Bracket {
         $sub_heading   = min( 6, $heading_level + 1 );
 
         $html = '<section class="bbb-bracket-wrapper" aria-label="' . esc_attr( $title ) . '">';
-        $html .= '<h' . $heading_level . ' class="bbb-bracket-title">' . $title . '</h' . $heading_level . '>';
+        $html .= '<h' . $heading_level . ' class="bbb-bracket-title">' . esc_html( $title ) . '</h' . $heading_level . '>';
         $html .= '<p class="bbb-sr-only">' . esc_html( sprintf( 'Turnierklammer mit %d Runden. Horizontal scrollbar.', $total_rounds ) ) . '</p>';
         $html .= '<div class="bbb-bracket" role="group" aria-label="Turnierbaum" data-rounds="' . $total_rounds . '">';
 

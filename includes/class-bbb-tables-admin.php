@@ -40,6 +40,9 @@ class BBB_Tables_Admin {
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_primary', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_link', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
         register_setting( 'bbb_tables_settings', 'bbb_tables_color_heading', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
+        // Werden von get_theme_colors() gelesen (Filter-/Fallback-Quelle), daher whitelisten.
+        register_setting( 'bbb_tables_settings', 'bbb_tables_color_background', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
+        register_setting( 'bbb_tables_settings', 'bbb_tables_color_text', [ 'type' => 'string', 'sanitize_callback' => 'sanitize_hex_color' ] );
         register_setting( 'bbb_tables_settings', 'bbb_tables_logo_proxy', [
             'type'              => 'boolean',
             'sanitize_callback' => function( $val ) { return (bool) $val; },
@@ -71,8 +74,9 @@ class BBB_Tables_Admin {
             delete_transient( "bbb_club_leagues_{$club_id}" );
         }
 
-        $tab = sanitize_key( $_POST['_bbb_redirect_tab'] ?? 'club' );
-        wp_redirect( admin_url( "options-general.php?page=bbb-live-tables&tab={$tab}&cache_cleared=1" ) );
+        // Nonce wurde oben via check_admin_referer() geprüft.
+        $tab = isset( $_POST['_bbb_redirect_tab'] ) ? sanitize_key( wp_unslash( $_POST['_bbb_redirect_tab'] ) ) : 'club';
+        wp_safe_redirect( admin_url( "options-general.php?page=bbb-live-tables&tab={$tab}&cache_cleared=1" ) );
         exit;
     }
 
@@ -81,11 +85,13 @@ class BBB_Tables_Admin {
     // ═════════════════════════════════════════
 
     public function render_page(): void {
-        $tab = sanitize_key( $_GET['tab'] ?? 'club' );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only tab navigation, no state change.
+        $tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'club';
         ?>
         <div class="wrap">
             <h1>BBB Live Tables</h1>
 
+            <?php /* phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only success notice. */ ?>
             <?php if ( ! empty( $_GET['cache_cleared'] ) ): ?>
                 <div class="notice notice-success is-dismissible"><p>Alle Caches (Tabellen, Brackets, Discovery) wurden geleert.</p></div>
             <?php endif; ?>
@@ -98,7 +104,7 @@ class BBB_Tables_Admin {
                     'reference'  => 'Referenz',
                     'support'    => '❤️ Support',
                 ] as $slug => $label ) : ?>
-                    <a href="?page=bbb-live-tables&tab=<?php echo $slug; ?>"
+                    <a href="?page=bbb-live-tables&tab=<?php echo esc_attr( $slug ); ?>"
                        class="nav-tab <?php echo $tab === $slug ? 'nav-tab-active' : ''; ?>">
                         <?php echo esc_html( $label ); ?>
                     </a>

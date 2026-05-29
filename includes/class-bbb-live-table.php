@@ -159,7 +159,7 @@ class BBB_Live_Table {
 
         return $css . $this->render_table_html(
             $table_data,
-            esc_html( $title ),
+            $title,
             (int) $atts['highlight_club'],
             $atts['show_logos'] === 'true',
             $cols_desktop,
@@ -352,7 +352,7 @@ class BBB_Live_Table {
 
         $gb_hidden_class = $show_gb ? ' bbb-gb-hidden' : '';
         $html .= '<section class="bbb-table-wrapper ' . $team_class . $gb_hidden_class . '" id="' . esc_attr( $table_id ) . '" aria-label="' . esc_attr( $title ) . '">';
-        $html .= '<h' . $heading_level . ' class="bbb-table-title">' . $title . '</h' . $heading_level . '>';
+        $html .= '<h' . $heading_level . ' class="bbb-table-title">' . esc_html( $title ) . '</h' . $heading_level . '>';
 
         if ( $show_gb ) {
             $html .= '<div class="bbb-table-toggle" role="tablist" aria-label="Tabellen-Sortierung">';

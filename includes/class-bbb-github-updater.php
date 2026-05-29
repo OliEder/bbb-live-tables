@@ -81,7 +81,7 @@ class BBB_GitHub_Updater {
             'tested'          => get_bloginfo( 'version' ),
             'last_updated'    => $remote['published_at'],
             'sections'        => [
-                'description'  => $remote['description'] ?? '',
+                'description'  => wp_kses_post( $remote['description'] ?? '' ),
                 'changelog'    => nl2br( esc_html( $remote['changelog'] ) ),
             ],
         ];
