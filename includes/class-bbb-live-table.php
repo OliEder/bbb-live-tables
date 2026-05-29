@@ -28,488 +28,606 @@ defined( 'ABSPATH' ) || exit;
 
 class BBB_Live_Table {
 
-    private BBB_Api_Client $api;
-    private static bool $css_injected = false;
-    private static bool $gb_js_injected = false;
-
-    private const COLUMN_MAP = [
-        'platz'              => [ 'label' => '#',      'title' => 'Tabellenplatz',               'align' => 'center', 'priority' => 1 ],
-        'teamname'           => [ 'label' => 'Team',   'title' => 'Mannschaft',                  'align' => 'left',   'priority' => 2 ],
-        'anzSpiele'          => [ 'label' => 'Sp',     'title' => 'Anzahl Spiele',               'align' => 'center', 'priority' => 10 ],
-        'anzGewinnpunkte'    => [ 'label' => 'GP',     'title' => 'Gewinnpunkte (Tabelle)',       'align' => 'center', 'priority' => 11 ],
-        'anzVerlustpunkte'   => [ 'label' => 'VP',     'title' => 'Verlustpunkte (Tabelle)',      'align' => 'center', 'priority' => 12 ],
-        's'                  => [ 'label' => 'S',      'title' => 'Siege',                       'align' => 'center', 'priority' => 20 ],
-        'n'                  => [ 'label' => 'N',      'title' => 'Niederlagen',                 'align' => 'center', 'priority' => 21 ],
-        'gb'                 => [ 'label' => 'GB',     'title' => 'Games Behind (Rückstand zum Tabellenführer)', 'align' => 'center', 'priority' => 22 ],
-        'koerbe'             => [ 'label' => 'Körbe',  'title' => 'Erzielte Körbe',              'align' => 'right',  'priority' => 30 ],
-        'gegenKoerbe'        => [ 'label' => 'Geg.',   'title' => 'Erhaltene Körbe (Gegner)',     'align' => 'right',  'priority' => 31 ],
-        'korbdiff'           => [ 'label' => '+/−',    'title' => 'Korbdifferenz',               'align' => 'right',  'priority' => 32 ],
-        'korbRatio'          => [ 'label' => 'K:G',    'title' => 'Körbe : Gegenkörbe',            'align' => 'center', 'priority' => 33 ],
-        'ppg'                => [ 'label' => 'ØK',     'title' => 'Punkte pro Spiel',            'align' => 'right',  'priority' => 34 ],
-        'oppg'               => [ 'label' => 'ØG',     'title' => 'Gegenkörbe pro Spiel',        'align' => 'right',  'priority' => 35 ],
-        'punkte'             => [ 'label' => 'Pkt',    'title' => 'Tabellenpunkte',              'align' => 'center', 'priority' => 11 ],
-        'quotient'           => [ 'label' => 'Quo.',   'title' => 'Siegquotient',                'align' => 'right',  'priority' => 36 ],
-    ];
-
-    private const HIDDEN_COLUMNS = [
-        'team', 'teamPermanentId', 'clubId', 'teamnameSmall',
-        'teamId', 'ligaId', 'id', 'seasonId', 'seasonTeamId', 'teamCompetitionId',
-        'rang', 'anzspiele', 'verzicht', 'rpiRating', 'sosRating',
-    ];
-
-    private const DIFF_COLUMNS = [ 'korbdiff' ];
-
-    private const DEFAULT_DESKTOP = 'platz,teamname,anzSpiele,anzGewinnpunkte,s,n,korbRatio,ppg,oppg,korbdiff';
-    private const DEFAULT_MOBILE  = 'platz,teamname,s,n,korbdiff';
-
-    private const TEAM_DISPLAY_MODES = [ 'full', 'short', 'logo', 'nameShort' ];
-
-    public function __construct() {
-        $this->api = new BBB_Api_Client();
-        add_shortcode( 'bbb_table', [ $this, 'render_shortcode' ] );
-        add_action( 'init', [ $this, 'register_block' ] );
-    }
-
-    // ═════════════════════════════════════════
-    // GUTENBERG BLOCK
-    // ═════════════════════════════════════════
-
-    public function register_block(): void {
-        $block_dir = BBB_TABLES_DIR . 'blocks/table';
-        if ( ! file_exists( $block_dir . '/block.json' ) ) return;
-        register_block_type( $block_dir, [ 'render_callback' => [ $this, 'render_block' ] ] );
-    }
-
-    public function render_block( array $attributes, string $content, WP_Block $block ): string {
-        $shortcode_atts = [
-            'liga_id'              => (int) ( $attributes['ligaId'] ?? 0 ),
-            'title'                => $attributes['title'] ?? '',
-            'highlight_club'       => ! empty( $attributes['highlightOwn'] ) ? (int) get_option( 'bbb_tables_club_id', 0 ) : 0,
-            'cache'                => (int) ( $attributes['cache'] ?? 900 ),
-            'show_logos'           => ! empty( $attributes['showLogos'] ) ? 'true' : 'false',
-            'columns_desktop'      => $attributes['columnsDesktop'] ?? '',
-            'columns_mobile'       => $attributes['columnsMobile'] ?? '',
-            'team_display_desktop' => $attributes['teamDisplayDesktop'] ?? 'full',
-            'team_display_mobile'  => $attributes['teamDisplayMobile'] ?? 'short',
-            'show_gb'              => ! empty( $attributes['showGb'] ) ? 'true' : 'false',
-        ];
-
-        if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
-            $shortcode_atts['cache'] = min( $shortcode_atts['cache'], 60 );
-        }
-
-        $output = $this->render_shortcode( $shortcode_atts );
-
-        if ( empty( $output ) ) {
-            $output = '<p class="bbb-table-error" role="alert">Kein Tabelleninhalt verfügbar.</p>';
-        }
-
-        return '<div ' . get_block_wrapper_attributes() . '>' . $output . '</div>';
-    }
-
-    // ═════════════════════════════════════════
-    // SHORTCODE
-    // ═════════════════════════════════════════
-
-    public function render_shortcode( $atts ): string {
-        $atts = shortcode_atts( [
-            'liga_id'              => 0,
-            'title'                => '',
-            'highlight_club'       => (int) get_option( 'bbb_tables_club_id', 0 ),
-            'cache'                => 900,
-            'show_logos'           => 'true',
-            'columns_desktop'      => '',
-            'columns_mobile'       => '',
-            'columns'              => '',
-            'team_display_desktop' => 'full',
-            'team_display_mobile'  => 'short',
-            'show_gb'              => 'false',
-        ], $atts, 'bbb_table' );
-
-        $liga_id = (int) $atts['liga_id'];
-        if ( ! $liga_id ) {
-            return '<p class="bbb-table-error" role="alert">Fehler: liga_id fehlt im Shortcode.</p>';
-        }
-
-        $table_data = $this->get_table_data( $liga_id, (int) $atts['cache'] );
-        if ( is_wp_error( $table_data ) ) {
-            return '<p class="bbb-table-error" role="alert">Tabelle konnte nicht geladen werden.</p>';
-        }
-
-        $title = $atts['title'] ?: ( $table_data['liga_data']['liganame'] ?? "Tabelle #{$liga_id}" );
-
-        $css = '';
-        if ( ! self::$css_injected ) {
-            $css = '<style id="bbb-table-css">' . $this->get_table_css() . '</style>';
-            self::$css_injected = true;
-        }
-
-        $show_gb = ( $atts['show_gb'] === 'true' || $atts['show_gb'] === true );
-
-        $cols_desktop = $this->parse_columns_param( $atts['columns_desktop'] ?: $atts['columns'], self::DEFAULT_DESKTOP );
-        $cols_mobile  = $this->parse_columns_param( $atts['columns_mobile']  ?: $atts['columns'], self::DEFAULT_MOBILE );
-
-        if ( $show_gb ) {
-            $cols_desktop = $this->inject_gb_column( $cols_desktop );
-            $cols_mobile  = $this->inject_gb_column( $cols_mobile );
-        }
-
-        $td_desktop = in_array( $atts['team_display_desktop'], self::TEAM_DISPLAY_MODES, true ) ? $atts['team_display_desktop'] : 'full';
-        $td_mobile  = in_array( $atts['team_display_mobile'],  self::TEAM_DISPLAY_MODES, true ) ? $atts['team_display_mobile']  : 'short';
-
-        return $css . $this->render_table_html(
-            $table_data,
-            $title,
-            (int) $atts['highlight_club'],
-            $atts['show_logos'] === 'true',
-            $cols_desktop,
-            $cols_mobile,
-            $td_desktop,
-            $td_mobile,
-            $show_gb
-        );
-    }
-
-    private function parse_columns_param( string $param, string $default ): array {
-        $str = ! empty( $param ) ? $param : $default;
-        return array_filter( array_map( 'trim', explode( ',', $str ) ) );
-    }
-
-    private function inject_gb_column( array $columns ): array {
-        if ( in_array( 'gb', $columns, true ) ) {
-            return $columns;
-        }
-        $pos = array_search( 'n', $columns, true );
-        if ( $pos !== false ) {
-            array_splice( $columns, $pos + 1, 0, [ 'gb' ] );
-        } else {
-            $columns[] = 'gb';
-        }
-        return $columns;
-    }
-
-    // ═════════════════════════════════════════
-    // DATA LOADING + PREPROCESSING
-    // ═════════════════════════════════════════
-
-    private function get_table_data( int $liga_id, int $cache_ttl ): array|WP_Error {
-        $transient_key = "bbb_live_table_{$liga_id}";
-
-        if ( $cache_ttl > 0 ) {
-            $cached = get_transient( $transient_key );
-            if ( $cached !== false ) return $cached;
-        }
-
-        $result = $this->api->get_tabelle( $liga_id );
-        if ( is_wp_error( $result ) ) return $result;
-
-        $data = [
-            'liga_id'    => $liga_id,
-            'liga_data'  => $result['liga_data'] ?? [],
-            'entries'    => $this->preprocess_entries( $result['entries'] ?? [] ),
-            'fetched_at' => current_time( 'mysql' ),
-        ];
-
-        if ( $cache_ttl > 0 ) {
-            set_transient( $transient_key, $data, $cache_ttl );
-        }
-
-        return $data;
-    }
-
-    private function preprocess_entries( array $entries ): array {
-        $processed = [];
-
-        foreach ( $entries as $entry ) {
-            $row = [];
-
-            $row['platz'] = (int) ( $entry['rang'] ?? 0 );
-
-            $team = $entry['team'] ?? [];
-            if ( is_array( $team ) ) {
-                $row['teamname']        = $team['teamname'] ?? $team['name'] ?? $team['teamName'] ?? 'Unbekannt';
-                $row['teamnameSmall']   = $team['teamnameSmall'] ?? $team['teamname_small'] ?? '';
-                $row['teamPermanentId'] = (int) ( $team['teamPermanentId'] ?? $team['permanentId'] ?? 0 );
-
-                $club = $team['club'] ?? [];
-                $row['clubId'] = (int) (
-                    $team['clubId'] ?? $team['club_id']
-                    ?? ( is_array( $club ) ? ( $club['id'] ?? $club['clubId'] ?? 0 ) : 0 )
-                );
-            } else {
-                $row['teamname']        = (string) $team;
-                $row['teamnameSmall']   = '';
-                $row['teamPermanentId'] = 0;
-                $row['clubId']          = 0;
-            }
-
-            foreach ( $entry as $key => $value ) {
-                if ( $key === 'team' || $key === 'rang' ) continue;
-                if ( is_array( $value ) || is_object( $value ) ) continue;
-                $row[ $key ] = $value;
-            }
-
-            if ( isset( $row['anzspiele'] ) && ! isset( $row['anzSpiele'] ) ) {
-                $row['anzSpiele'] = $row['anzspiele'];
-            }
-
-            if ( empty( $row['clubId'] ) && ! empty( $entry['clubId'] ) ) {
-                $row['clubId'] = (int) $entry['clubId'];
-            }
-
-            if ( $row['platz'] === 0 ) {
-                $row['platz'] = count( $processed ) + 1;
-            }
-
-            // Berechnete Spalten: PPG, OPPG, K:G
-            $spiele = (int) ( $row['anzSpiele'] ?? $row['anzspiele'] ?? 0 );
-            $koerbe = (int) ( $row['koerbe'] ?? 0 );
-            $gegen  = (int) ( $row['gegenKoerbe'] ?? 0 );
-
-            if ( $spiele > 0 ) {
-                $row['ppg']  = number_format( $koerbe / $spiele, 1, ',', '' );
-                $row['oppg'] = number_format( $gegen / $spiele, 1, ',', '' );
-            } else {
-                $row['ppg']  = '–';
-                $row['oppg'] = '–';
-            }
-            $row['korbRatio'] = $koerbe . ':' . $gegen;
-
-            $processed[] = $row;
-        }
-
-        $this->compute_games_behind( $processed );
-
-        return $processed;
-    }
-
-    private function compute_games_behind( array &$entries ): void {
-        if ( empty( $entries ) ) return;
-
-        $leader_w = (int) ( $entries[0]['s'] ?? 0 );
-        $leader_l = (int) ( $entries[0]['n'] ?? 0 );
-
-        foreach ( $entries as &$row ) {
-            $w  = (int) ( $row['s'] ?? 0 );
-            $l  = (int) ( $row['n'] ?? 0 );
-            $gb = ( ( $leader_w - $w ) + ( $l - $leader_l ) ) / 2;
-
-            if ( $gb == 0 ) {
-                $row['gb'] = '–';
-            } elseif ( $gb == (int) $gb ) {
-                $row['gb'] = (string) (int) $gb;
-            } else {
-                $row['gb'] = number_format( $gb, 1, '.', '' );
-            }
-        }
-        unset( $row );
-    }
-
-    // ═════════════════════════════════════════
-    // HTML RENDERING
-    // ═════════════════════════════════════════
-
-    private function render_table_html(
-        array $table_data,
-        string $title,
-        int $highlight_club,
-        bool $show_logos,
-        array $cols_desktop,
-        array $cols_mobile,
-        string $td_desktop,
-        string $td_mobile,
-        bool $show_gb = false
-    ): string {
-        $entries = $table_data['entries'] ?? [];
-
-        if ( empty( $entries ) ) {
-            return '<p class="bbb-table-error" role="alert">Keine Tabelleneinträge vorhanden.</p>';
-        }
-
-        $all_col_keys = array_values( array_unique( array_merge( $cols_desktop, $cols_mobile ) ) );
-        $columns = $this->detect_columns( $entries, $all_col_keys );
-
-        $col_visibility = [];
-        foreach ( array_keys( $columns ) as $key ) {
-            $in_d = in_array( $key, $cols_desktop, true );
-            $in_m = in_array( $key, $cols_mobile, true );
-            if ( $in_d && $in_m )     $col_visibility[ $key ] = 'both';
-            elseif ( $in_d )          $col_visibility[ $key ] = 'desktop-only';
-            elseif ( $in_m )          $col_visibility[ $key ] = 'mobile-only';
-            else                      $col_visibility[ $key ] = 'both';
-        }
-
-        $table_id = 'bbb-table-' . substr( md5( $title . ( $table_data['liga_id'] ?? '' ) ), 0, 6 );
-
-        $heading_level = max( 2, min( 6, (int) apply_filters( 'bbb_table_heading_level', 3 ) ) );
-
-        $team_class = 'bbb-td-d-' . esc_attr( $td_desktop ) . ' bbb-td-m-' . esc_attr( $td_mobile );
-
-        $scoped_css = $this->get_responsive_column_css( $table_id, $columns, $col_visibility );
-        $scoped_css .= $this->get_team_display_css( $table_id, $td_desktop, $td_mobile );
-
-        $html = '<style>' . $scoped_css . '</style>';
-
-        $gb_hidden_class = $show_gb ? ' bbb-gb-hidden' : '';
-        $html .= '<section class="bbb-table-wrapper ' . $team_class . $gb_hidden_class . '" id="' . esc_attr( $table_id ) . '" aria-label="' . esc_attr( $title ) . '">';
-        $html .= '<h' . $heading_level . ' class="bbb-table-title">' . esc_html( $title ) . '</h' . $heading_level . '>';
-
-        if ( $show_gb ) {
-            $html .= '<div class="bbb-table-toggle" role="tablist" aria-label="Tabellen-Sortierung">';
-            $html .= '<button class="bbb-toggle-btn bbb-toggle-active" role="tab" aria-selected="true" data-sort="dbb"'
-                   . ' data-table="' . esc_attr( $table_id ) . '">Offizielle Tabelle</button>';
-            $html .= '<button class="bbb-toggle-btn" role="tab" aria-selected="false" data-sort="gb"'
-                   . ' data-table="' . esc_attr( $table_id ) . '">Ranking nach GB</button>';
-            $html .= '</div>';
-        }
-
-        $html .= '<div class="bbb-table-scroll">';
-        $html .= '<table class="bbb-table">';
-        $html .= '<caption class="bbb-sr-only">' . esc_html( $title ) . '</caption>';
-
-        // <thead>
-        $html .= '<thead><tr>';
-        foreach ( $columns as $key => $col ) {
-            $sort_attr = $key === 'platz' ? ' aria-sort="ascending"' : '';
-            $html .= '<th scope="col"'
-                   . ' class="bbb-table-col-' . esc_attr( $key ) . '"'
-                   . ' style="text-align:' . esc_attr( $col['align'] ) . '"'
-                   . ' title="' . esc_attr( $col['title'] ) . '"'
-                   . $sort_attr
-                   . '><abbr title="' . esc_attr( $col['title'] ) . '">'
-                   . esc_html( $col['label'] )
-                   . '</abbr></th>';
-        }
-        $html .= '</tr></thead>';
-
-        // ★ FILTER: Eigene Team-IDs für Highlighting
-        $own_permanent_ids = $this->get_own_team_permanent_ids( $highlight_club );
-
-        // <tbody>
-        $html .= '<tbody>';
-        foreach ( $entries as $entry ) {
-            $club_id  = (int) ( $entry['clubId'] ?? 0 );
-            $team_pid = (int) ( $entry['teamPermanentId'] ?? 0 );
-
-            $is_own = false;
-            if ( $highlight_club > 0 ) {
-                $is_own = ( $club_id === $highlight_club )
-                       || in_array( $team_pid, $own_permanent_ids, true );
-            }
-
-            $row_class = $is_own ? 'bbb-table-row bbb-table-row-own' : 'bbb-table-row';
-
-            $data_attrs = '';
-            if ( $show_gb ) {
-                $orig_rank = $entry['platz'] ?? '';
-                $orig_gb   = $entry['gb'] ?? '–';
-                $wins      = (int) ( $entry['s'] ?? 0 );
-                $losses    = (int) ( $entry['n'] ?? 0 );
-                $data_attrs = ' data-orig-rank="' . esc_attr( $orig_rank ) . '"'
-                            . ' data-orig-gb="' . esc_attr( $orig_gb ) . '"'
-                            . ' data-s="' . $wins . '"'
-                            . ' data-n="' . $losses . '"';
-            }
-
-            $html .= '<tr class="' . $row_class . '"' . $data_attrs . '>';
-
-            foreach ( $columns as $key => $col ) {
-                $value = $entry[ $key ] ?? '';
-
-                if ( $key === 'platz' ) {
-                    $html .= '<th scope="row" class="bbb-table-col-platz" style="text-align:center">'
-                           . esc_html( $value ) . '.</th>';
-                    continue;
-                }
-
-                if ( $key === 'teamname' ) {
-                    $html .= $this->render_team_cell( $entry, $show_logos, $is_own );
-                    continue;
-                }
-
-                if ( $key === 'gb' ) {
-                    $gb_class = ( (string) $value === '–' ) ? ' bbb-table-gb-leader' : '';
-                    $html .= '<td class="bbb-table-col-gb' . $gb_class . '" style="text-align:center">'
-                           . esc_html( $value ) . '</td>';
-                    continue;
-                }
-
-                if ( in_array( $key, self::DIFF_COLUMNS, true ) ) {
-                    $num        = (int) $value;
-                    $display    = $num > 0 ? '+' . $num : (string) $num;
-                    $diff_class = $num > 0 ? ' bbb-table-diff-pos' : ( $num < 0 ? ' bbb-table-diff-neg' : '' );
-                    $html .= '<td class="bbb-table-col-' . esc_attr( $key ) . $diff_class . '"'
-                           . ' style="text-align:' . esc_attr( $col['align'] ) . '">'
-                           . esc_html( $display ) . '</td>';
-                    continue;
-                }
-
-                $html .= '<td class="bbb-table-col-' . esc_attr( $key ) . '"'
-                       . ' style="text-align:' . esc_attr( $col['align'] ) . '">'
-                       . esc_html( $value ) . '</td>';
-            }
-
-            $html .= '</tr>';
-        }
-        $html .= '</tbody></table></div>';
-
-        $html .= '<div class="bbb-table-footer">';
-        $html .= '<span class="bbb-table-updated">Stand: ' . esc_html( $table_data['fetched_at'] ?? '' ) . '</span>';
-        $html .= '<span class="bbb-table-source">Quelle: basketball-bund.net (Live)</span>';
-        $html .= '</div></section>';
-
-        if ( $show_gb ) {
-            $html .= $this->get_gb_toggle_js();
-        }
-
-        return $html;
-    }
-
-    private function render_team_cell( array $entry, bool $show_logos, bool $is_own ): string {
-        $full_name  = $this->shorten_team_name( (string) ( $entry['teamname'] ?? '' ) );
-        $short_name = (string) ( $entry['teamnameSmall'] ?? '' );
-        if ( empty( $short_name ) ) $short_name = mb_strtoupper( mb_substr( $full_name, 0, 3 ) );
-        $team_pid   = (int) ( $entry['teamPermanentId'] ?? 0 );
-
-        $logo_html = '';
-        if ( $show_logos && $team_pid ) {
-            // ★ FILTER: Logo-URL (Sync-Plugin kann SP Featured Image liefern)
-            $logo_url = $this->get_team_logo_url( $team_pid );
-            if ( $logo_url ) {
-                $logo_html = '<img class="bbb-table-logo" src="' . esc_url( $logo_url ) . '"'
-                           . ' alt="' . esc_attr( $full_name ) . '" width="20" height="20" loading="lazy">';
-            }
-        }
-
-        $own_sr = $is_own ? '<span class="bbb-sr-only"> (eigener Verein)</span>' : '';
-
-        $html = '<td class="bbb-table-col-teamname bbb-table-team-cell" style="text-align:left">';
-
-        $html .= '<span class="bbb-team-full">' . $logo_html
-               . '<span class="bbb-table-teamname">' . esc_html( $full_name ) . '</span>' . $own_sr . '</span>';
-
-        $html .= '<span class="bbb-team-short">' . $logo_html
-               . '<span class="bbb-table-teamname">' . esc_html( $short_name ) . '</span>' . $own_sr . '</span>';
-
-        $html .= '<span class="bbb-team-logo">' . $logo_html
-               . '<span class="bbb-sr-only">' . esc_html( $full_name ) . $own_sr . '</span></span>';
-
-        $html .= '<span class="bbb-team-nameShort">'
-               . '<span class="bbb-table-teamname">' . esc_html( $short_name ) . '</span>' . $own_sr . '</span>';
-
-        $html .= '</td>';
-        return $html;
-    }
-
-    // ═════════════════════════════════════════
-    // GB-TOGGLE JS
-    // ═════════════════════════════════════════
-
-    private function get_gb_toggle_js(): string {
-        if ( self::$gb_js_injected ) return '';
-        self::$gb_js_injected = true;
-
-        return '<script id="bbb-gb-toggle-js">
+	private BBB_Api_Client $api;
+	private static bool $css_injected   = false;
+	private static bool $gb_js_injected = false;
+
+	private const COLUMN_MAP = array(
+		'platz'            => array(
+			'label'    => '#',
+			'title'    => 'Tabellenplatz',
+			'align'    => 'center',
+			'priority' => 1,
+		),
+		'teamname'         => array(
+			'label'    => 'Team',
+			'title'    => 'Mannschaft',
+			'align'    => 'left',
+			'priority' => 2,
+		),
+		'anzSpiele'        => array(
+			'label'    => 'Sp',
+			'title'    => 'Anzahl Spiele',
+			'align'    => 'center',
+			'priority' => 10,
+		),
+		'anzGewinnpunkte'  => array(
+			'label'    => 'GP',
+			'title'    => 'Gewinnpunkte (Tabelle)',
+			'align'    => 'center',
+			'priority' => 11,
+		),
+		'anzVerlustpunkte' => array(
+			'label'    => 'VP',
+			'title'    => 'Verlustpunkte (Tabelle)',
+			'align'    => 'center',
+			'priority' => 12,
+		),
+		's'                => array(
+			'label'    => 'S',
+			'title'    => 'Siege',
+			'align'    => 'center',
+			'priority' => 20,
+		),
+		'n'                => array(
+			'label'    => 'N',
+			'title'    => 'Niederlagen',
+			'align'    => 'center',
+			'priority' => 21,
+		),
+		'gb'               => array(
+			'label'    => 'GB',
+			'title'    => 'Games Behind (Rückstand zum Tabellenführer)',
+			'align'    => 'center',
+			'priority' => 22,
+		),
+		'koerbe'           => array(
+			'label'    => 'Körbe',
+			'title'    => 'Erzielte Körbe',
+			'align'    => 'right',
+			'priority' => 30,
+		),
+		'gegenKoerbe'      => array(
+			'label'    => 'Geg.',
+			'title'    => 'Erhaltene Körbe (Gegner)',
+			'align'    => 'right',
+			'priority' => 31,
+		),
+		'korbdiff'         => array(
+			'label'    => '+/−',
+			'title'    => 'Korbdifferenz',
+			'align'    => 'right',
+			'priority' => 32,
+		),
+		'korbRatio'        => array(
+			'label'    => 'K:G',
+			'title'    => 'Körbe : Gegenkörbe',
+			'align'    => 'center',
+			'priority' => 33,
+		),
+		'ppg'              => array(
+			'label'    => 'ØK',
+			'title'    => 'Punkte pro Spiel',
+			'align'    => 'right',
+			'priority' => 34,
+		),
+		'oppg'             => array(
+			'label'    => 'ØG',
+			'title'    => 'Gegenkörbe pro Spiel',
+			'align'    => 'right',
+			'priority' => 35,
+		),
+		'punkte'           => array(
+			'label'    => 'Pkt',
+			'title'    => 'Tabellenpunkte',
+			'align'    => 'center',
+			'priority' => 11,
+		),
+		'quotient'         => array(
+			'label'    => 'Quo.',
+			'title'    => 'Siegquotient',
+			'align'    => 'right',
+			'priority' => 36,
+		),
+	);
+
+	private const HIDDEN_COLUMNS = array(
+		'team',
+		'teamPermanentId',
+		'clubId',
+		'teamnameSmall',
+		'teamId',
+		'ligaId',
+		'id',
+		'seasonId',
+		'seasonTeamId',
+		'teamCompetitionId',
+		'rang',
+		'anzspiele',
+		'verzicht',
+		'rpiRating',
+		'sosRating',
+	);
+
+	private const DIFF_COLUMNS = array( 'korbdiff' );
+
+	private const DEFAULT_DESKTOP = 'platz,teamname,anzSpiele,anzGewinnpunkte,s,n,korbRatio,ppg,oppg,korbdiff';
+	private const DEFAULT_MOBILE  = 'platz,teamname,s,n,korbdiff';
+
+	private const TEAM_DISPLAY_MODES = array( 'full', 'short', 'logo', 'nameShort' );
+
+	public function __construct() {
+		$this->api = new BBB_Api_Client();
+		add_shortcode( 'bbb_table', array( $this, 'render_shortcode' ) );
+		add_action( 'init', array( $this, 'register_block' ) );
+	}
+
+	// ═════════════════════════════════════════
+	// GUTENBERG BLOCK
+	// ═════════════════════════════════════════
+
+	public function register_block(): void {
+		$block_dir = BBB_TABLES_DIR . 'blocks/table';
+		if ( ! file_exists( $block_dir . '/block.json' ) ) {
+			return;
+		}
+		register_block_type( $block_dir, array( 'render_callback' => array( $this, 'render_block' ) ) );
+	}
+
+	public function render_block( array $attributes, string $content, WP_Block $block ): string {
+		$shortcode_atts = array(
+			'liga_id'              => (int) ( $attributes['ligaId'] ?? 0 ),
+			'title'                => $attributes['title'] ?? '',
+			'highlight_club'       => ! empty( $attributes['highlightOwn'] ) ? (int) get_option( 'bbb_tables_club_id', 0 ) : 0,
+			'cache'                => (int) ( $attributes['cache'] ?? 900 ),
+			'show_logos'           => ! empty( $attributes['showLogos'] ) ? 'true' : 'false',
+			'columns_desktop'      => $attributes['columnsDesktop'] ?? '',
+			'columns_mobile'       => $attributes['columnsMobile'] ?? '',
+			'team_display_desktop' => $attributes['teamDisplayDesktop'] ?? 'full',
+			'team_display_mobile'  => $attributes['teamDisplayMobile'] ?? 'short',
+			'show_gb'              => ! empty( $attributes['showGb'] ) ? 'true' : 'false',
+		);
+
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			$shortcode_atts['cache'] = min( $shortcode_atts['cache'], 60 );
+		}
+
+		$output = $this->render_shortcode( $shortcode_atts );
+
+		if ( empty( $output ) ) {
+			$output = '<p class="bbb-table-error" role="alert">Kein Tabelleninhalt verfügbar.</p>';
+		}
+
+		return '<div ' . get_block_wrapper_attributes() . '>' . $output . '</div>';
+	}
+
+	// ═════════════════════════════════════════
+	// SHORTCODE
+	// ═════════════════════════════════════════
+
+	public function render_shortcode( $atts ): string {
+		$atts = shortcode_atts(
+			array(
+				'liga_id'              => 0,
+				'title'                => '',
+				'highlight_club'       => (int) get_option( 'bbb_tables_club_id', 0 ),
+				'cache'                => 900,
+				'show_logos'           => 'true',
+				'columns_desktop'      => '',
+				'columns_mobile'       => '',
+				'columns'              => '',
+				'team_display_desktop' => 'full',
+				'team_display_mobile'  => 'short',
+				'show_gb'              => 'false',
+			),
+			$atts,
+			'bbb_table'
+		);
+
+		$liga_id = (int) $atts['liga_id'];
+		if ( ! $liga_id ) {
+			return '<p class="bbb-table-error" role="alert">Fehler: liga_id fehlt im Shortcode.</p>';
+		}
+
+		$table_data = $this->get_table_data( $liga_id, (int) $atts['cache'] );
+		if ( is_wp_error( $table_data ) ) {
+			return '<p class="bbb-table-error" role="alert">Tabelle konnte nicht geladen werden.</p>';
+		}
+
+		$title = $atts['title'] ?: ( $table_data['liga_data']['liganame'] ?? "Tabelle #{$liga_id}" );
+
+		$css = '';
+		if ( ! self::$css_injected ) {
+			$css                = '<style id="bbb-table-css">' . $this->get_table_css() . '</style>';
+			self::$css_injected = true;
+		}
+
+		$show_gb = ( $atts['show_gb'] === 'true' );
+
+		$cols_desktop = $this->parse_columns_param( $atts['columns_desktop'] ?: $atts['columns'], self::DEFAULT_DESKTOP );
+		$cols_mobile  = $this->parse_columns_param( $atts['columns_mobile'] ?: $atts['columns'], self::DEFAULT_MOBILE );
+
+		if ( $show_gb ) {
+			$cols_desktop = $this->inject_gb_column( $cols_desktop );
+			$cols_mobile  = $this->inject_gb_column( $cols_mobile );
+		}
+
+		$td_desktop = in_array( $atts['team_display_desktop'], self::TEAM_DISPLAY_MODES, true ) ? $atts['team_display_desktop'] : 'full';
+		$td_mobile  = in_array( $atts['team_display_mobile'], self::TEAM_DISPLAY_MODES, true ) ? $atts['team_display_mobile'] : 'short';
+
+		return $css . $this->render_table_html(
+			$table_data,
+			$title,
+			(int) $atts['highlight_club'],
+			$atts['show_logos'] === 'true',
+			$cols_desktop,
+			$cols_mobile,
+			$td_desktop,
+			$td_mobile,
+			$show_gb
+		);
+	}
+
+	private function parse_columns_param( string $param, string $default ): array {
+		$str = ! empty( $param ) ? $param : $default;
+		return array_filter( array_map( 'trim', explode( ',', $str ) ) );
+	}
+
+	private function inject_gb_column( array $columns ): array {
+		if ( in_array( 'gb', $columns, true ) ) {
+			return $columns;
+		}
+		$pos = array_search( 'n', $columns, true );
+		if ( $pos !== false ) {
+			array_splice( $columns, $pos + 1, 0, array( 'gb' ) );
+		} else {
+			$columns[] = 'gb';
+		}
+		return $columns;
+	}
+
+	// ═════════════════════════════════════════
+	// DATA LOADING + PREPROCESSING
+	// ═════════════════════════════════════════
+
+	private function get_table_data( int $liga_id, int $cache_ttl ): array|WP_Error {
+		$transient_key = "bbb_live_table_{$liga_id}";
+
+		if ( $cache_ttl > 0 ) {
+			$cached = get_transient( $transient_key );
+			if ( $cached !== false ) {
+				return $cached;
+			}
+		}
+
+		$result = $this->api->get_tabelle( $liga_id );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$data = array(
+			'liga_id'    => $liga_id,
+			'liga_data'  => $result['liga_data'] ?? array(),
+			'entries'    => $this->preprocess_entries( $result['entries'] ?? array() ),
+			'fetched_at' => current_time( 'mysql' ),
+		);
+
+		if ( $cache_ttl > 0 ) {
+			set_transient( $transient_key, $data, $cache_ttl );
+		}
+
+		return $data;
+	}
+
+	private function preprocess_entries( array $entries ): array {
+		$processed = array();
+
+		foreach ( $entries as $entry ) {
+			$row = array();
+
+			$row['platz'] = (int) ( $entry['rang'] ?? 0 );
+
+			$team = $entry['team'] ?? array();
+			if ( is_array( $team ) ) {
+				$row['teamname']        = $team['teamname'] ?? $team['name'] ?? $team['teamName'] ?? 'Unbekannt';
+				$row['teamnameSmall']   = $team['teamnameSmall'] ?? $team['teamname_small'] ?? '';
+				$row['teamPermanentId'] = (int) ( $team['teamPermanentId'] ?? $team['permanentId'] ?? 0 );
+
+				$club          = $team['club'] ?? array();
+				$row['clubId'] = (int) (
+					$team['clubId'] ?? $team['club_id']
+					?? ( is_array( $club ) ? ( $club['id'] ?? $club['clubId'] ?? 0 ) : 0 )
+				);
+			} else {
+				$row['teamname']        = (string) $team;
+				$row['teamnameSmall']   = '';
+				$row['teamPermanentId'] = 0;
+				$row['clubId']          = 0;
+			}
+
+			foreach ( $entry as $key => $value ) {
+				if ( $key === 'team' || $key === 'rang' ) {
+					continue;
+				}
+				if ( is_array( $value ) || is_object( $value ) ) {
+					continue;
+				}
+				$row[ $key ] = $value;
+			}
+
+			if ( isset( $row['anzspiele'] ) && ! isset( $row['anzSpiele'] ) ) {
+				$row['anzSpiele'] = $row['anzspiele'];
+			}
+
+			if ( empty( $row['clubId'] ) && ! empty( $entry['clubId'] ) ) {
+				$row['clubId'] = (int) $entry['clubId'];
+			}
+
+			if ( $row['platz'] === 0 ) {
+				$row['platz'] = count( $processed ) + 1;
+			}
+
+			// Berechnete Spalten: PPG, OPPG, K:G
+			$spiele = (int) ( $row['anzSpiele'] ?? $row['anzspiele'] ?? 0 );
+			$koerbe = (int) ( $row['koerbe'] ?? 0 );
+			$gegen  = (int) ( $row['gegenKoerbe'] ?? 0 );
+
+			if ( $spiele > 0 ) {
+				$row['ppg']  = number_format( $koerbe / $spiele, 1, ',', '' );
+				$row['oppg'] = number_format( $gegen / $spiele, 1, ',', '' );
+			} else {
+				$row['ppg']  = '–';
+				$row['oppg'] = '–';
+			}
+			$row['korbRatio'] = $koerbe . ':' . $gegen;
+
+			$processed[] = $row;
+		}
+
+		$this->compute_games_behind( $processed );
+
+		return $processed;
+	}
+
+	private function compute_games_behind( array &$entries ): void {
+		if ( empty( $entries ) ) {
+			return;
+		}
+
+		$leader_w = (int) ( $entries[0]['s'] ?? 0 );
+		$leader_l = (int) ( $entries[0]['n'] ?? 0 );
+
+		foreach ( $entries as &$row ) {
+			$w  = (int) ( $row['s'] ?? 0 );
+			$l  = (int) ( $row['n'] ?? 0 );
+			$gb = ( ( $leader_w - $w ) + ( $l - $leader_l ) ) / 2;
+
+			$gb = (float) $gb;
+			if ( 0.0 === $gb ) {
+				$row['gb'] = '–';
+			} elseif ( (float) (int) $gb === $gb ) {
+				$row['gb'] = (string) (int) $gb;
+			} else {
+				$row['gb'] = number_format( $gb, 1, '.', '' );
+			}
+		}
+		unset( $row );
+	}
+
+	// ═════════════════════════════════════════
+	// HTML RENDERING
+	// ═════════════════════════════════════════
+
+	private function render_table_html(
+		array $table_data,
+		string $title,
+		int $highlight_club,
+		bool $show_logos,
+		array $cols_desktop,
+		array $cols_mobile,
+		string $td_desktop,
+		string $td_mobile,
+		bool $show_gb = false
+	): string {
+		$entries = $table_data['entries'] ?? array();
+
+		if ( empty( $entries ) ) {
+			return '<p class="bbb-table-error" role="alert">Keine Tabelleneinträge vorhanden.</p>';
+		}
+
+		$all_col_keys = array_values( array_unique( array_merge( $cols_desktop, $cols_mobile ) ) );
+		$columns      = $this->detect_columns( $entries, $all_col_keys );
+
+		$col_visibility = array();
+		foreach ( array_keys( $columns ) as $key ) {
+			$in_d = in_array( $key, $cols_desktop, true );
+			$in_m = in_array( $key, $cols_mobile, true );
+			if ( $in_d && $in_m ) {
+				$col_visibility[ $key ] = 'both';
+			} elseif ( $in_d ) {
+				$col_visibility[ $key ] = 'desktop-only';
+			} elseif ( $in_m ) {
+				$col_visibility[ $key ] = 'mobile-only';
+			} else {
+				$col_visibility[ $key ] = 'both';
+			}
+		}
+
+		$table_id = 'bbb-table-' . substr( md5( $title . ( $table_data['liga_id'] ?? '' ) ), 0, 6 );
+
+		$heading_level = max( 2, min( 6, (int) apply_filters( 'bbb_table_heading_level', 3 ) ) );
+
+		$team_class = 'bbb-td-d-' . esc_attr( $td_desktop ) . ' bbb-td-m-' . esc_attr( $td_mobile );
+
+		$scoped_css  = $this->get_responsive_column_css( $table_id, $columns, $col_visibility );
+		$scoped_css .= $this->get_team_display_css( $table_id, $td_desktop, $td_mobile );
+
+		$html = '<style>' . $scoped_css . '</style>';
+
+		$gb_hidden_class = $show_gb ? ' bbb-gb-hidden' : '';
+		$html           .= '<section class="bbb-table-wrapper ' . $team_class . $gb_hidden_class . '" id="' . esc_attr( $table_id ) . '" aria-label="' . esc_attr( $title ) . '">';
+		$html           .= '<h' . $heading_level . ' class="bbb-table-title">' . esc_html( $title ) . '</h' . $heading_level . '>';
+
+		if ( $show_gb ) {
+			$html .= '<div class="bbb-table-toggle" role="tablist" aria-label="Tabellen-Sortierung">';
+			$html .= '<button class="bbb-toggle-btn bbb-toggle-active" role="tab" aria-selected="true" data-sort="dbb"'
+					. ' data-table="' . esc_attr( $table_id ) . '">Offizielle Tabelle</button>';
+			$html .= '<button class="bbb-toggle-btn" role="tab" aria-selected="false" data-sort="gb"'
+					. ' data-table="' . esc_attr( $table_id ) . '">Ranking nach GB</button>';
+			$html .= '</div>';
+		}
+
+		$html .= '<div class="bbb-table-scroll">';
+		$html .= '<table class="bbb-table">';
+		$html .= '<caption class="bbb-sr-only">' . esc_html( $title ) . '</caption>';
+
+		// <thead>
+		$html .= '<thead><tr>';
+		foreach ( $columns as $key => $col ) {
+			$sort_attr = $key === 'platz' ? ' aria-sort="ascending"' : '';
+			$html     .= '<th scope="col"'
+					. ' class="bbb-table-col-' . esc_attr( $key ) . '"'
+					. ' style="text-align:' . esc_attr( $col['align'] ) . '"'
+					. ' title="' . esc_attr( $col['title'] ) . '"'
+					. $sort_attr
+					. '><abbr title="' . esc_attr( $col['title'] ) . '">'
+					. esc_html( $col['label'] )
+					. '</abbr></th>';
+		}
+		$html .= '</tr></thead>';
+
+		// ★ FILTER: Eigene Team-IDs für Highlighting
+		$own_permanent_ids = $this->get_own_team_permanent_ids( $highlight_club );
+
+		// <tbody>
+		$html .= '<tbody>';
+		foreach ( $entries as $entry ) {
+			$club_id  = (int) ( $entry['clubId'] ?? 0 );
+			$team_pid = (int) ( $entry['teamPermanentId'] ?? 0 );
+
+			$is_own = false;
+			if ( $highlight_club > 0 ) {
+				$is_own = ( $club_id === $highlight_club )
+						|| in_array( $team_pid, $own_permanent_ids, true );
+			}
+
+			$row_class = $is_own ? 'bbb-table-row bbb-table-row-own' : 'bbb-table-row';
+
+			$data_attrs = '';
+			if ( $show_gb ) {
+				$orig_rank  = $entry['platz'] ?? '';
+				$orig_gb    = $entry['gb'] ?? '–';
+				$wins       = (int) ( $entry['s'] ?? 0 );
+				$losses     = (int) ( $entry['n'] ?? 0 );
+				$data_attrs = ' data-orig-rank="' . esc_attr( $orig_rank ) . '"'
+							. ' data-orig-gb="' . esc_attr( $orig_gb ) . '"'
+							. ' data-s="' . $wins . '"'
+							. ' data-n="' . $losses . '"';
+			}
+
+			$html .= '<tr class="' . $row_class . '"' . $data_attrs . '>';
+
+			foreach ( $columns as $key => $col ) {
+				$value = $entry[ $key ] ?? '';
+
+				if ( $key === 'platz' ) {
+					$html .= '<th scope="row" class="bbb-table-col-platz" style="text-align:center">'
+							. esc_html( $value ) . '.</th>';
+					continue;
+				}
+
+				if ( $key === 'teamname' ) {
+					$html .= $this->render_team_cell( $entry, $show_logos, $is_own );
+					continue;
+				}
+
+				if ( $key === 'gb' ) {
+					$gb_class = ( (string) $value === '–' ) ? ' bbb-table-gb-leader' : '';
+					$html    .= '<td class="bbb-table-col-gb' . $gb_class . '" style="text-align:center">'
+							. esc_html( $value ) . '</td>';
+					continue;
+				}
+
+				if ( in_array( $key, self::DIFF_COLUMNS, true ) ) {
+					$num        = (int) $value;
+					$display    = $num > 0 ? '+' . $num : (string) $num;
+					$diff_class = $num > 0 ? ' bbb-table-diff-pos' : ( $num < 0 ? ' bbb-table-diff-neg' : '' );
+					$html      .= '<td class="bbb-table-col-' . esc_attr( $key ) . $diff_class . '"'
+							. ' style="text-align:' . esc_attr( $col['align'] ) . '">'
+							. esc_html( $display ) . '</td>';
+					continue;
+				}
+
+				$html .= '<td class="bbb-table-col-' . esc_attr( $key ) . '"'
+						. ' style="text-align:' . esc_attr( $col['align'] ) . '">'
+						. esc_html( $value ) . '</td>';
+			}
+
+			$html .= '</tr>';
+		}
+		$html .= '</tbody></table></div>';
+
+		$html .= '<div class="bbb-table-footer">';
+		$html .= '<span class="bbb-table-updated">Stand: ' . esc_html( $table_data['fetched_at'] ?? '' ) . '</span>';
+		$html .= '<span class="bbb-table-source">Quelle: basketball-bund.net (Live)</span>';
+		$html .= '</div></section>';
+
+		if ( $show_gb ) {
+			$html .= $this->get_gb_toggle_js();
+		}
+
+		return $html;
+	}
+
+	private function render_team_cell( array $entry, bool $show_logos, bool $is_own ): string {
+		$full_name  = $this->shorten_team_name( (string) ( $entry['teamname'] ?? '' ) );
+		$short_name = (string) ( $entry['teamnameSmall'] ?? '' );
+		if ( empty( $short_name ) ) {
+			$short_name = mb_strtoupper( mb_substr( $full_name, 0, 3 ) );
+		}
+		$team_pid = (int) ( $entry['teamPermanentId'] ?? 0 );
+
+		$logo_html = '';
+		if ( $show_logos && $team_pid ) {
+			// ★ FILTER: Logo-URL (Sync-Plugin kann SP Featured Image liefern)
+			$logo_url = $this->get_team_logo_url( $team_pid );
+			if ( $logo_url ) {
+				$logo_html = '<img class="bbb-table-logo" src="' . esc_url( $logo_url ) . '"'
+							. ' alt="' . esc_attr( $full_name ) . '" width="20" height="20" loading="lazy">';
+			}
+		}
+
+		$own_sr = $is_own ? '<span class="bbb-sr-only"> (eigener Verein)</span>' : '';
+
+		$html = '<td class="bbb-table-col-teamname bbb-table-team-cell" style="text-align:left">';
+
+		$html .= '<span class="bbb-team-full">' . $logo_html
+				. '<span class="bbb-table-teamname">' . esc_html( $full_name ) . '</span>' . $own_sr . '</span>';
+
+		$html .= '<span class="bbb-team-short">' . $logo_html
+				. '<span class="bbb-table-teamname">' . esc_html( $short_name ) . '</span>' . $own_sr . '</span>';
+
+		$html .= '<span class="bbb-team-logo">' . $logo_html
+				. '<span class="bbb-sr-only">' . esc_html( $full_name ) . $own_sr . '</span></span>';
+
+		$html .= '<span class="bbb-team-nameShort">'
+				. '<span class="bbb-table-teamname">' . esc_html( $short_name ) . '</span>' . $own_sr . '</span>';
+
+		$html .= '</td>';
+		return $html;
+	}
+
+	// ═════════════════════════════════════════
+	// GB-TOGGLE JS
+	// ═════════════════════════════════════════
+
+	private function get_gb_toggle_js(): string {
+		if ( self::$gb_js_injected ) {
+			return '';
+		}
+		self::$gb_js_injected = true;
+
+		return '<script id="bbb-gb-toggle-js">
 (function(){
     function calcGb(rows){
         var best={s:0,n:999,diff:-999};
@@ -589,162 +707,187 @@ class BBB_Live_Table {
     });
 })();
 </script>';
-    }
+	}
 
-    // ═════════════════════════════════════════
-    // RESPONSIVE CSS
-    // ═════════════════════════════════════════
+	// ═════════════════════════════════════════
+	// RESPONSIVE CSS
+	// ═════════════════════════════════════════
 
-    private function get_responsive_column_css( string $id, array $columns, array $visibility ): string {
-        $desktop_only = $mobile_only = [];
+	private function get_responsive_column_css( string $id, array $columns, array $visibility ): string {
+		$desktop_only = array();
+		$mobile_only  = array();
 
-        foreach ( $visibility as $key => $mode ) {
-            $sel = '#' . $id . ' .bbb-table-col-' . $key;
-            if ( $mode === 'desktop-only' )  $desktop_only[] = $sel;
-            elseif ( $mode === 'mobile-only' ) $mobile_only[] = $sel;
-        }
+		foreach ( $visibility as $key => $mode ) {
+			$sel = '#' . $id . ' .bbb-table-col-' . $key;
+			if ( $mode === 'desktop-only' ) {
+				$desktop_only[] = $sel;
+			} elseif ( $mode === 'mobile-only' ) {
+				$mobile_only[] = $sel;
+			}
+		}
 
-        $css = '';
-        if ( $desktop_only ) {
-            $css .= '@media(max-width:599px){' . implode( ',', $desktop_only ) . '{display:none}}';
-        }
-        if ( $mobile_only ) {
-            $css .= '@media(min-width:600px){' . implode( ',', $mobile_only ) . '{display:none}}';
-        }
-        return $css;
-    }
+		$css = '';
+		if ( $desktop_only ) {
+			$css .= '@media(max-width:599px){' . implode( ',', $desktop_only ) . '{display:none}}';
+		}
+		if ( $mobile_only ) {
+			$css .= '@media(min-width:600px){' . implode( ',', $mobile_only ) . '{display:none}}';
+		}
+		return $css;
+	}
 
-    private function get_team_display_css( string $id, string $desktop, string $mobile ): string {
-        $s = '#' . $id;
-        $css  = $s . ' .bbb-team-full,' . $s . ' .bbb-team-short,' . $s . ' .bbb-team-logo,' . $s . ' .bbb-team-nameShort{display:none}';
-        $css .= '@media(min-width:600px){' . $s . ' .bbb-team-' . $desktop . '{display:inline}}';
-        $css .= '@media(max-width:599px){' . $s . ' .bbb-team-' . $mobile . '{display:inline}}';
-        return $css;
-    }
+	private function get_team_display_css( string $id, string $desktop, string $mobile ): string {
+		$s    = '#' . $id;
+		$css  = $s . ' .bbb-team-full,' . $s . ' .bbb-team-short,' . $s . ' .bbb-team-logo,' . $s . ' .bbb-team-nameShort{display:none}';
+		$css .= '@media(min-width:600px){' . $s . ' .bbb-team-' . $desktop . '{display:inline}}';
+		$css .= '@media(max-width:599px){' . $s . ' .bbb-team-' . $mobile . '{display:inline}}';
+		return $css;
+	}
 
-    // ═════════════════════════════════════════
-    // COLUMN DETECTION
-    // ═════════════════════════════════════════
+	// ═════════════════════════════════════════
+	// COLUMN DETECTION
+	// ═════════════════════════════════════════
 
-    private function detect_columns( array $entries, array $requested ): array {
-        $first = $entries[0] ?? [];
-        $columns = [];
+	private function detect_columns( array $entries, array $requested ): array {
+		$first   = $entries[0] ?? array();
+		$columns = array();
 
-        if ( ! empty( $requested ) ) {
-            foreach ( $requested as $key ) {
-                if ( ! array_key_exists( $key, $first ) ) continue;
-                if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) continue;
-                $columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
-            }
-            return $columns;
-        }
+		if ( ! empty( $requested ) ) {
+			foreach ( $requested as $key ) {
+				if ( ! array_key_exists( $key, $first ) ) {
+					continue;
+				}
+				if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) {
+					continue;
+				}
+				$columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
+			}
+			return $columns;
+		}
 
-        foreach ( array_keys( $first ) as $key ) {
-            if ( in_array( $key, self::HIDDEN_COLUMNS, true ) ) continue;
-            if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) continue;
-            $columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
-        }
+		foreach ( array_keys( $first ) as $key ) {
+			if ( in_array( $key, self::HIDDEN_COLUMNS, true ) ) {
+				continue;
+			}
+			if ( ! preg_match( '/^[a-zA-Z0-9_]+$/', $key ) ) {
+				continue;
+			}
+			$columns[ $key ] = $this->get_column_def( $key, $first[ $key ] ?? '' );
+		}
 
-        uasort( $columns, fn( $a, $b ) => $a['priority'] <=> $b['priority'] );
-        return $columns;
-    }
+		uasort( $columns, fn( $a, $b ) => $a['priority'] <=> $b['priority'] );
+		return $columns;
+	}
 
-    private function get_column_def( string $key, mixed $sample ): array {
-        if ( isset( self::COLUMN_MAP[ $key ] ) ) {
-            return self::COLUMN_MAP[ $key ];
-        }
-        $readable = ucfirst( strtolower( preg_replace( '/([a-z])([A-Z])/', '$1 $2', $key ) ) );
-        return [ 'label' => $readable, 'title' => $readable, 'align' => is_numeric( $sample ) ? 'right' : 'left', 'priority' => 50 ];
-    }
+	private function get_column_def( string $key, mixed $sample ): array {
+		if ( isset( self::COLUMN_MAP[ $key ] ) ) {
+			return self::COLUMN_MAP[ $key ];
+		}
+		$readable = ucfirst( strtolower( preg_replace( '/([a-z])([A-Z])/', '$1 $2', $key ) ) );
+		return array(
+			'label'    => $readable,
+			'title'    => $readable,
+			'align'    => is_numeric( $sample ) ? 'right' : 'left',
+			'priority' => 50,
+		);
+	}
 
-    // ═════════════════════════════════════════
-    // HELPERS (★ mit Filter-Hooks)
-    // ═════════════════════════════════════════
+	// ═════════════════════════════════════════
+	// HELPERS (★ mit Filter-Hooks)
+	// ═════════════════════════════════════════
 
-    /**
-     * Eigene Team-IDs ermitteln.
-     *
-     * ★ FILTER: bbb_table_own_team_ids
-     * Sync-Plugin kann hier SP-basierte IDs liefern.
-     * Standalone-Fallback: bbb_tables_own_team_pids Option.
-     */
-    private function get_own_team_permanent_ids( int $club_id ): array {
-        static $cache = [];
-        if ( ! $club_id ) return [];
-        if ( isset( $cache[ $club_id ] ) ) return $cache[ $club_id ];
+	/**
+	 * Eigene Team-IDs ermitteln.
+	 *
+	 * ★ FILTER: bbb_table_own_team_ids
+	 * Sync-Plugin kann hier SP-basierte IDs liefern.
+	 * Standalone-Fallback: bbb_tables_own_team_pids Option.
+	 */
+	private function get_own_team_permanent_ids( int $club_id ): array {
+		static $cache = array();
+		if ( ! $club_id ) {
+			return array();
+		}
+		if ( isset( $cache[ $club_id ] ) ) {
+			return $cache[ $club_id ];
+		}
 
-        // 1. Filter fragen (Sync-Plugin liefert SP-basierte IDs)
-        $ids = apply_filters( 'bbb_table_own_team_ids', [], $club_id );
+		// 1. Filter fragen (Sync-Plugin liefert SP-basierte IDs)
+		$ids = apply_filters( 'bbb_table_own_team_ids', array(), $club_id );
 
-        // 2. API Auto-Discovery: Team-PIDs aus actualmatches (24h gecached)
-        if ( empty( $ids ) ) {
-            $ids = $this->api->get_club_team_ids( $club_id );
-        }
+		// 2. API Auto-Discovery: Team-PIDs aus actualmatches (24h gecached)
+		if ( empty( $ids ) ) {
+			$ids = $this->api->get_club_team_ids( $club_id );
+		}
 
-        // 3. Manuelle Liste aus Plugin-Einstellungen (letzter Fallback)
-        if ( empty( $ids ) ) {
-            $manual = get_option( 'bbb_tables_own_team_pids', '' );
-            if ( ! empty( $manual ) ) {
-                $ids = array_map( 'intval', array_filter( explode( ',', $manual ) ) );
-            }
-        }
+		// 3. Manuelle Liste aus Plugin-Einstellungen (letzter Fallback)
+		if ( empty( $ids ) ) {
+			$manual = get_option( 'bbb_tables_own_team_pids', '' );
+			if ( ! empty( $manual ) ) {
+				$ids = array_map( 'intval', array_filter( explode( ',', $manual ) ) );
+			}
+		}
 
-        $cache[ $club_id ] = $ids;
-        return $ids;
-    }
+		$cache[ $club_id ] = $ids;
+		return $ids;
+	}
 
-    private function shorten_team_name( string $name ): string {
-        return preg_replace( '/\s*\([^)]*\)\s*$/', '', $name );
-    }
+	private function shorten_team_name( string $name ): string {
+		return preg_replace( '/\s*\([^)]*\)\s*$/', '', $name );
+	}
 
-    /**
-     * Team-Logo URL.
-     *
-     * ★ FILTER: bbb_table_team_logo_url
-     * Sync-Plugin kann SP Featured Image liefern.
-     * Standalone-Fallback: BBB Media URL.
-     */
-    private function get_team_logo_url( int $permanent_id ): string {
-        $url = apply_filters( 'bbb_table_team_logo_url', '', $permanent_id );
-        if ( $url ) return $url;
+	/**
+	 * Team-Logo URL.
+	 *
+	 * ★ FILTER: bbb_table_team_logo_url
+	 * Sync-Plugin kann SP Featured Image liefern.
+	 * Standalone-Fallback: BBB Media URL.
+	 */
+	private function get_team_logo_url( int $permanent_id ): string {
+		$url = apply_filters( 'bbb_table_team_logo_url', '', $permanent_id );
+		if ( $url ) {
+			return $url;
+		}
 
-        if ( get_option( 'bbb_tables_logo_proxy', false ) ) {
-            $proxied = $this->api->get_team_logo_data_uri( $permanent_id );
-            if ( $proxied ) return $proxied;
-        }
+		if ( get_option( 'bbb_tables_logo_proxy', false ) ) {
+			$proxied = $this->api->get_team_logo_data_uri( $permanent_id );
+			if ( $proxied ) {
+				return $proxied;
+			}
+		}
 
-        return "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
-    }
+		return "https://www.basketball-bund.net/media/team/{$permanent_id}/logo";
+	}
 
-    // ═════════════════════════════════════════
-    // CACHE
-    // ═════════════════════════════════════════
+	// ═════════════════════════════════════════
+	// CACHE
+	// ═════════════════════════════════════════
 
-    public static function invalidate_cache( int $liga_id ): void {
-        delete_transient( "bbb_live_table_{$liga_id}" );
-    }
+	public static function invalidate_cache( int $liga_id ): void {
+		delete_transient( "bbb_live_table_{$liga_id}" );
+	}
 
-    public static function invalidate_all_caches(): void {
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Fully hardcoded query, no user input
-        $wpdb->query(
-            "DELETE FROM {$wpdb->options}
+	public static function invalidate_all_caches(): void {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk transient cleanup; hardcoded query, no user input, cannot use the options API for a LIKE sweep.
+		$wpdb->query(
+			"DELETE FROM {$wpdb->options}
              WHERE option_name LIKE '_transient_bbb_live_table_%'
              OR option_name LIKE '_transient_timeout_bbb_live_table_%'"
-        );
-    }
+		);
+	}
 
-    // ═════════════════════════════════════════
-    // STYLES
-    // ═════════════════════════════════════════
+	// ═════════════════════════════════════════
+	// STYLES
+	// ═════════════════════════════════════════
 
-    private function get_table_css(): string {
-        $c = $this->get_theme_colors();
-        $primary_light = $this->hex_lighten( $c['primary'], 92 );
-        $own_bg        = $this->hex_lighten( $c['link'], 88 );
-        $own_border    = $c['link'];
+	private function get_table_css(): string {
+		$c             = $this->get_theme_colors();
+		$primary_light = $this->hex_lighten( $c['primary'], 92 );
+		$own_bg        = $this->hex_lighten( $c['link'], 88 );
+		$own_border    = $c['link'];
 
-        return '
+		return '
 /* ═══ BBB Live Table v1.3 (Standalone) ═══ */
 .bbb-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .bbb-table-wrapper{margin:2em 0}
@@ -789,51 +932,60 @@ class BBB_Live_Table {
   .bbb-table-logo{width:16px;height:16px}
 }
 ';
-    }
+	}
 
-    /**
-     * Theme-Farben ermitteln.
-     *
-     * ★ FILTER: bbb_table_theme_colors
-     * Sync-Plugin kann SP/ThemeBoy-Farben liefern.
-     * Standalone: eigene Plugin-Settings + Goodlayers Fallback.
-     */
-    private function get_theme_colors(): array {
-        $defaults = [
-            'primary'    => get_option( 'bbb_tables_color_primary', '' ),
-            'background' => get_option( 'bbb_tables_color_background', '' ),
-            'link'       => get_option( 'bbb_tables_color_link', '' ),
-            'text'       => get_option( 'bbb_tables_color_text', '' ),
-            'heading'    => get_option( 'bbb_tables_color_heading', '' ),
-        ];
+	/**
+	 * Theme-Farben ermitteln.
+	 *
+	 * ★ FILTER: bbb_table_theme_colors
+	 * Sync-Plugin kann SP/ThemeBoy-Farben liefern.
+	 * Standalone: eigene Plugin-Settings + Goodlayers Fallback.
+	 */
+	private function get_theme_colors(): array {
+		$defaults = array(
+			'primary'    => get_option( 'bbb_tables_color_primary', '' ),
+			'background' => get_option( 'bbb_tables_color_background', '' ),
+			'link'       => get_option( 'bbb_tables_color_link', '' ),
+			'text'       => get_option( 'bbb_tables_color_text', '' ),
+			'heading'    => get_option( 'bbb_tables_color_heading', '' ),
+		);
 
-        // Goodlayers Fallback (ohne SP)
-        if ( empty( $defaults['primary'] ) && function_exists( 'gdlr_core_get_option' ) ) {
-            $gp = gdlr_core_get_option( 'skin_color', '' );
-            if ( $gp ) $defaults['primary'] = $gp;
-            $gl = gdlr_core_get_option( 'link_color', '' );
-            if ( $gl ) $defaults['link'] = $gl;
-        }
+		// Goodlayers Fallback (ohne SP)
+		if ( empty( $defaults['primary'] ) && function_exists( 'gdlr_core_get_option' ) ) {
+			$gp = gdlr_core_get_option( 'skin_color', '' );
+			if ( $gp ) {
+				$defaults['primary'] = $gp;
+			}
+			$gl = gdlr_core_get_option( 'link_color', '' );
+			if ( $gl ) {
+				$defaults['link'] = $gl;
+			}
+		}
 
-        // Hardcoded Defaults für leere Werte
-        $defaults = array_merge( [
-            'primary'    => '#2b353e',
-            'background' => '#f4f4f4',
-            'link'       => '#00a69c',
-            'text'       => '#222222',
-            'heading'    => '#ffffff',
-        ], array_filter( $defaults ) );
+		// Hardcoded Defaults für leere Werte
+		$defaults = array_merge(
+			array(
+				'primary'    => '#2b353e',
+				'background' => '#f4f4f4',
+				'link'       => '#00a69c',
+				'text'       => '#222222',
+				'heading'    => '#ffffff',
+			),
+			array_filter( $defaults )
+		);
 
-        // ★ FILTER: Sync-Plugin kann SP-Farben injizieren
-        return apply_filters( 'bbb_table_theme_colors', $defaults );
-    }
+		// ★ FILTER: Sync-Plugin kann SP-Farben injizieren
+		return apply_filters( 'bbb_table_theme_colors', $defaults );
+	}
 
-    private function hex_lighten( string $hex, int $percent ): string {
-        $hex = ltrim( $hex, '#' );
-        if ( strlen( $hex ) === 3 ) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
-        $r = min( 255, hexdec( substr( $hex, 0, 2 ) ) + round( (255 - hexdec( substr( $hex, 0, 2 ) )) * $percent / 100 ) );
-        $g = min( 255, hexdec( substr( $hex, 2, 2 ) ) + round( (255 - hexdec( substr( $hex, 2, 2 ) )) * $percent / 100 ) );
-        $b = min( 255, hexdec( substr( $hex, 4, 2 ) ) + round( (255 - hexdec( substr( $hex, 4, 2 ) )) * $percent / 100 ) );
-        return sprintf( '#%02x%02x%02x', $r, $g, $b );
-    }
+	private function hex_lighten( string $hex, int $percent ): string {
+		$hex = ltrim( $hex, '#' );
+		if ( strlen( $hex ) === 3 ) {
+			$hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+		}
+		$r = min( 255, hexdec( substr( $hex, 0, 2 ) ) + round( ( 255 - hexdec( substr( $hex, 0, 2 ) ) ) * $percent / 100 ) );
+		$g = min( 255, hexdec( substr( $hex, 2, 2 ) ) + round( ( 255 - hexdec( substr( $hex, 2, 2 ) ) ) * $percent / 100 ) );
+		$b = min( 255, hexdec( substr( $hex, 4, 2 ) ) + round( ( 255 - hexdec( substr( $hex, 4, 2 ) ) ) * $percent / 100 ) );
+		return sprintf( '#%02x%02x%02x', $r, $g, $b );
+	}
 }
