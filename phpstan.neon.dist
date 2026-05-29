@@ -1,0 +1,19 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 5
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+    paths:
+        - bbb-live-tables.php
+        - includes
+    excludePaths:
+        - blocks/*/editor.asset.php
+    ignoreErrors:
+        # WP-Update-Transient ist ein dynamisch befülltes stdClass-Objekt
+        # ohne typisierte Properties; PHPStan kann ->response/->no_update
+        # nicht kennen.
+        -
+            message: '#Access to an undefined property object::\$(response|no_update)#'
+            path: includes/class-bbb-github-updater.php

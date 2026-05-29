@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnNotice="true">
+    <testsuites>
+        <testsuite name="unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">includes</directory>
+        </include>
+        <exclude>
+            <!-- Reine WP-Integrations-/IO-Schichten: nicht sinnvoll unit-testbar -->
+            <file>includes/class-bbb-github-updater.php</file>
+            <file>includes/class-bbb-tables-admin.php</file>
+            <file>includes/class-bbb-goodlayers-elements.php</file>
+        </exclude>
+    </source>
+</phpunit>
